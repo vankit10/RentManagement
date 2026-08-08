@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "915823959294",
+    "project_id": "rent-management-system-f95ba",
+    "storage_bucket": "rent-management-system-f95ba.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:915823959294:android:14152e83813268f01999af",
+        "android_client_info": {
+          "package_name": "com.rentmanagementsystem"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyAN8mvO49te23WasRMKjTZ1JXY66RE4a_g"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
