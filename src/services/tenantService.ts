@@ -403,6 +403,7 @@ export async function linkTenantAccountOnFirstLogin(
     .single();
 
   if (mapError || !mapData) {
+    console.error('[tenantService] phone_tenant_map fetch failed:', mapError);
     throw new Error('TENANT_NOT_REGISTERED');
   }
 
@@ -419,6 +420,7 @@ export async function linkTenantAccountOnFirstLogin(
     .single();
 
   if (tenantFetchError || !tenantData) {
+    console.error('[tenantService] tenants fetch failed:', tenantFetchError);
     throw new Error('TENANT_NOT_REGISTERED');
   }
 
