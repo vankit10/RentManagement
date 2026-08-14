@@ -21,6 +21,7 @@ import {
   subscribeToNotifications,
 } from '../../services/tenantService';
 import { formatCurrency, formatDate } from '../../utils/helpers';
+import { getSupabaseErrorMessage } from '../../utils/supabaseErrors';
 import type { Tenant, RentRecord, MeterReading, AppNotification } from '../../types';
 
 // ─── Summary card ─────────────────────────────────────────────────────────────
@@ -84,7 +85,7 @@ const summaryStyles = StyleSheet.create({
 // ─── Main screen ──────────────────────────────────────────────────────────────
 export default function TenantDashboardScreen() {
   const { user } = useAuth();
-  const uid = user?.uid ?? '';
+  const uid = user?.id ?? '';
 
   const [tenant, setTenant] = useState<Tenant | null>(null);
   const [latestRent, setLatestRent] = useState<RentRecord | null>(null);
@@ -92,10 +93,12 @@ export default function TenantDashboardScreen() {
   const [unreadCount, setUnreadCount] = useState(0);
   const [isLoading, setIsLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
+  const [loadError, setLoadError] = useState<string | null>(null);
 
   // ── Data loading ────────────────────────────────────────────────────────────
   const loadData = useCallback(async () => {
     if (!uid) { return; }
+    setLoadError(null);
     try {
       const t = await getTenantByUserId(uid);
       setTenant(t);
@@ -109,6 +112,7 @@ export default function TenantDashboardScreen() {
       }
     } catch (err) {
       console.warn('[Dashboard] loadData error:', err);
+      setLoadError(getSupabaseErrorMessage(err, 'loading your dashboard'));
     } finally {
       setIsLoading(false);
       setRefreshing(false);
@@ -123,7 +127,7 @@ export default function TenantDashboardScreen() {
     const unsub = subscribeToNotifications(
       tenant.id,
       (items: AppNotification[]) => {
-        setUnreadCount(items.filter(n => !n.isRead).length);
+        setUnreadCount(items.filter(n => !n.is_read).length);
       },
     );
     return unsub;
@@ -180,12 +184,22 @@ export default function TenantDashboardScreen() {
           </View>
         ) : (
           <>
+            {/* ── Error banner ──────────────────────────────────────────────── */}
+            {loadError && (
+              <View style={styles.errorBanner}>
+                <Icon name="alert-circle-outline" size={18} color={Colors.error} />
+                <Text style={styles.errorBannerText}>{loadError}</Text>
+                <TouchableOpacity onPress={() => { setIsLoading(true); loadData(); }} accessibilityLabel="Retry">
+                  <Text style={styles.errorRetry}>Retry</Text>
+                </TouchableOpacity>
+              </View>
+            )}
             {/* ── Room info strip ───────────────────────────────────────────── */}
             {tenant && (
               <View style={styles.roomStrip}>
                 <Icon name="home-outline" size={16} color={Colors.accent} />
                 <Text style={styles.roomText}>
-                  Room {tenant.roomNumber}
+                  Room {tenant.room_number}
                   {'  ·  '}
                   <Text style={styles.roomStatus}>
                     {tenant.status.charAt(0).toUpperCase() + tenant.status.slice(1)}
@@ -228,16 +242,16 @@ export default function TenantDashboardScreen() {
                   <View style={styles.detailRow}>
                     <Text style={styles.detailLabel}>Due Date</Text>
                     <Text style={styles.detailValue}>
-                      {formatDate(latestRent.dueDate)}
+                      {formatDate(latestRent.due_date)}
                     </Text>
                   </View>
-                  {latestRent.paidDate && (
+                  {latestRent.paid_date && (
                     <>
                       <View style={styles.divider} />
                       <View style={styles.detailRow}>
                         <Text style={styles.detailLabel}>Paid On</Text>
                         <Text style={styles.detailValue}>
-                          {formatDate(latestRent.paidDate)}
+                          {formatDate(latestRent.paid_date)}
                         </Text>
                       </View>
                     </>
@@ -264,21 +278,21 @@ export default function TenantDashboardScreen() {
                   <View style={styles.detailRow}>
                     <Text style={styles.detailLabel}>Current Reading</Text>
                     <Text style={styles.detailValue}>
-                      {latestMeter.currentReading} units
+                      {latestMeter.current_reading} units
                     </Text>
                   </View>
                   <View style={styles.divider} />
                   <View style={styles.detailRow}>
                     <Text style={styles.detailLabel}>Previous Reading</Text>
                     <Text style={styles.detailValue}>
-                      {latestMeter.previousReading} units
+                      {latestMeter.previous_reading} units
                     </Text>
                   </View>
                   <View style={styles.divider} />
                   <View style={styles.detailRow}>
                     <Text style={styles.detailLabel}>Units Consumed</Text>
                     <Text style={styles.detailValue}>
-                      {latestMeter.unitsConsumed} units
+                      {latestMeter.units_consumed} units
                     </Text>
                   </View>
                   <View style={styles.divider} />
@@ -299,7 +313,7 @@ export default function TenantDashboardScreen() {
                   <View style={styles.detailRow}>
                     <Text style={styles.detailLabel}>Reading Date</Text>
                     <Text style={styles.detailValue}>
-                      {formatDate(latestMeter.readingDate)}
+                      {formatDate(latestMeter.reading_date)}
                     </Text>
                   </View>
                 </View>
@@ -370,6 +384,30 @@ const styles = StyleSheet.create({
   // Loading
   loadingContainer: { paddingTop: Spacing.xxxl, alignItems: 'center' },
   loadingText: { fontSize: FontSize.base, color: Colors.textMuted },
+
+  errorBanner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: Colors.errorLight,
+    borderRadius: Radius.sm,
+    padding: Spacing.md,
+    marginBottom: Spacing.base,
+    gap: Spacing.sm,
+    borderWidth: 1,
+    borderColor: '#F5C6C2',
+  },
+  errorBannerText: {
+    flex: 1,
+    fontSize: FontSize.sm,
+    color: Colors.error,
+    lineHeight: 18,
+  },
+  errorRetry: {
+    fontSize: FontSize.sm,
+    fontWeight: FontWeight.bold,
+    color: Colors.error,
+    textDecorationLine: 'underline',
+  },
 
   // Room strip
   roomStrip: {

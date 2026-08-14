@@ -11,6 +11,7 @@ import OwnerTenantsScreen from '../screens/owner/TenantsScreen';
 import OwnerPaymentsScreen from '../screens/owner/PaymentsScreen';
 import OwnerElectricityScreen from '../screens/owner/ElectricityScreen';
 import OwnerNotificationsScreen from '../screens/owner/NotificationsScreen';
+import OwnerProfileScreen from '../screens/owner/ProfileScreen';
 
 // Owner stack push screens
 import TenantDetailScreen from '../screens/owner/TenantDetailScreen';
@@ -50,6 +51,7 @@ function OwnerTabs() {
             Payments: 'cash-check',
             Electricity: 'lightning-bolt-outline',
             Notifications: 'bell-outline',
+            Profile: 'account-circle-outline',
           };
           return (
             <Icon
@@ -66,6 +68,7 @@ function OwnerTabs() {
       <Tab.Screen name="Payments" component={OwnerPaymentsScreen} />
       <Tab.Screen name="Electricity" component={OwnerElectricityScreen} />
       <Tab.Screen name="Notifications" component={OwnerNotificationsScreen} />
+      <Tab.Screen name="Profile" component={OwnerProfileScreen} />
     </Tab.Navigator>
   );
 }

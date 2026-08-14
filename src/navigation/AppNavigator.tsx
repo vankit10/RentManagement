@@ -19,7 +19,7 @@ const Stack = createNativeStackNavigator<RootStackParamList>();
 export default function AppNavigator() {
   const { isLoading, isAuthenticated, role } = useAuth();
 
-  // Hold on splash while Firebase onAuthStateChanged fires
+  // Hold on splash while Supabase restores the session
   if (isLoading) {
     return <SplashScreen />;
   }

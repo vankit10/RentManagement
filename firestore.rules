@@ -1,0 +1,148 @@
+rules_version = '2';
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Adarsh Infra Rent Management System — Firestore Security Rules
+//
+// Auth methods supported:
+//   - Email/password (owner + tenants with password set)
+//   - Phone OTP     (tenants — primary login method)
+//
+// Role hierarchy:
+//   owner  — full read/write on all collections
+//   tenant — reads own documents only; can mark notifications read
+//
+// Phone auth note:
+//   Firebase Phone Auth sets request.auth.token.phone_number.
+//   Email auth sets request.auth.token.email.
+//   Both are valid authenticated states.
+// ─────────────────────────────────────────────────────────────────────────────
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // ── Helper functions ───────────────────────────────────────────────────
+
+    // Is the requester authenticated (any method)?
+    function isAuthed() {
+      return request.auth != null;
+    }
+
+    // Is the requester the owner?
+    // Owner is identified by their Firestore role field — fetched securely.
+    function isOwner() {
+      return isAuthed() &&
+        get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'owner';
+    }
+
+    // Is the requester a tenant?
+    function isTenant() {
+      return isAuthed() &&
+        get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'tenant';
+    }
+
+    // Is the requester the owner of the given document (by userId field)?
+    function isDocOwner(userId) {
+      return isAuthed() && request.auth.uid == userId;
+    }
+
+    // ── users/{userId} ─────────────────────────────────────────────────────
+    // - Owner: full read/write
+    // - Tenant: read/write own document only
+    // - Phone-auth first login: allow create own document (userId == auth.uid)
+    match /users/{userId} {
+      allow read:   if isOwner() || isDocOwner(userId);
+      allow create: if isOwner() || isDocOwner(userId);
+      allow update: if isOwner() || isDocOwner(userId);
+      allow delete: if isOwner();
+    }
+
+    // ── tenants/{tenantId} ─────────────────────────────────────────────────
+    // - Owner: full CRUD
+    // - Tenant: read own document (matched via userId field)
+    // - Tenant cannot write their own tenant doc (owner manages it)
+    match /tenants/{tenantId} {
+      allow read:   if isOwner() ||
+                       (isAuthed() && resource.data.userId == request.auth.uid);
+      allow create: if isOwner();
+      allow update: if isOwner();
+      allow delete: if isOwner();
+    }
+
+    // ── phoneTenantMap/{phone} ─────────────────────────────────────────────
+    // Maps phone → tenantId for first-login linking.
+    // - Owner: full read/write (created during tenant registration)
+    // - Authed user: read only (needed during OTP first-login linking in AuthContext)
+    // - Authed user: update own entry to set userId + linked = true
+    match /phoneTenantMap/{phone} {
+      allow read:   if isOwner() || isAuthed();
+      allow create: if isOwner();
+      // Allow the newly authed phone user to update the map entry to link themselves
+      allow update: if isOwner() ||
+                       (isAuthed() &&
+                        request.resource.data.linked == true &&
+                        request.resource.data.uid == request.auth.uid);
+      allow delete: if isOwner();
+    }
+
+    // ── rentRecords/{rentId} ───────────────────────────────────────────────
+    // - Owner: full CRUD
+    // - Tenant: read records where tenantId matches their own tenant document
+    match /rentRecords/{rentId} {
+      allow read:   if isOwner() ||
+                       (isAuthed() && isTenantRecord(resource.data.tenantId));
+      allow create: if isOwner();
+      allow update: if isOwner();
+      allow delete: if isOwner();
+    }
+
+    // ── meterReadings/{readingId} ──────────────────────────────────────────
+    // - Owner: full CRUD
+    // - Tenant: read own readings
+    match /meterReadings/{readingId} {
+      allow read:   if isOwner() ||
+                       (isAuthed() && isTenantRecord(resource.data.tenantId));
+      allow create: if isOwner();
+      allow update: if isOwner();
+      allow delete: if isOwner();
+    }
+
+    // ── notifications/{notificationId} ────────────────────────────────────
+    // - Owner: full CRUD (create/read/update/delete)
+    // - Tenant: read own; update only isRead field on own notifications
+    match /notifications/{notificationId} {
+      allow read:   if isOwner() ||
+                       (isAuthed() && isTenantRecord(resource.data.tenantId));
+      allow create: if isOwner();
+      allow update: if isOwner() ||
+                       (isAuthed() &&
+                        isTenantRecord(resource.data.tenantId) &&
+                        onlyUpdatingIsRead());
+      allow delete: if isOwner();
+    }
+
+    // ── smsFailureLogs/{logId} ────────────────────────────────────────────
+    // Written by Cloud Functions (admin SDK — bypasses these rules).
+    // Owner can read; no client writes.
+    match /smsFailureLogs/{logId} {
+      allow read:   if isOwner();
+      allow write:  if false; // written only by Cloud Functions admin SDK
+    }
+
+    // ── Helper: check if a tenantId belongs to the requesting user ─────────
+    // Looks up the tenants collection to confirm userId == auth.uid.
+    // Avoids exposing the tenantId → userId mapping directly.
+    function isTenantRecord(tenantId) {
+      return get(/databases/$(database)/documents/tenants/$(tenantId)).data.userId == request.auth.uid;
+    }
+
+    // ── Helper: ensure only isRead is being updated ────────────────────────
+    function onlyUpdatingIsRead() {
+      return request.resource.data.diff(resource.data).affectedKeys().hasOnly(['isRead']);
+    }
+
+    // ── Deny everything else ───────────────────────────────────────────────
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}

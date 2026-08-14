@@ -6,6 +6,7 @@ import {
   FlatList,
   RefreshControl,
   Platform,
+  TouchableOpacity,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import Icon from 'react-native-vector-icons/MaterialCommunityIcons';
@@ -15,6 +16,7 @@ import EmptyState from '../../components/EmptyState';
 import { useAuth } from '../../context/AuthContext';
 import { getTenantByUserId, getMeterReadings } from '../../services/tenantService';
 import { formatCurrency, formatDate } from '../../utils/helpers';
+import { getSupabaseErrorMessage } from '../../utils/supabaseErrors';
 import type { MeterReading, Tenant } from '../../types';
 
 // ─── Meter reading row ────────────────────────────────────────────────────────
@@ -25,7 +27,7 @@ function MeterRow({ item, isLatest }: { item: MeterReading; isLatest: boolean })
       <View style={rowStyles.top}>
         <View style={rowStyles.dateWrap}>
           <Icon name="meter-electric-outline" size={16} color={Colors.primary} />
-          <Text style={rowStyles.date}>{formatDate(item.readingDate)}</Text>
+          <Text style={rowStyles.date}>{formatDate(item.reading_date)}</Text>
         </View>
         {isLatest && (
           <View style={rowStyles.latestBadge}>
@@ -39,13 +41,13 @@ function MeterRow({ item, isLatest }: { item: MeterReading; isLatest: boolean })
       {/* Reading pair */}
       <View style={rowStyles.readingRow}>
         <View style={rowStyles.readingItem}>
-          <Text style={rowStyles.readingNum}>{item.previousReading}</Text>
+          <Text style={rowStyles.readingNum}>{item.previous_reading}</Text>
           <Text style={rowStyles.readingLabel}>Previous</Text>
         </View>
         <Icon name="arrow-right" size={18} color={Colors.textMuted} />
         <View style={rowStyles.readingItem}>
           <Text style={[rowStyles.readingNum, { color: Colors.primary }]}>
-            {item.currentReading}
+            {item.current_reading}
           </Text>
           <Text style={rowStyles.readingLabel}>Current</Text>
         </View>
@@ -56,7 +58,7 @@ function MeterRow({ item, isLatest }: { item: MeterReading; isLatest: boolean })
       {/* Calculation breakdown */}
       <View style={rowStyles.row}>
         <Text style={rowStyles.label}>Units Consumed</Text>
-        <Text style={rowStyles.value}>{item.unitsConsumed} units</Text>
+        <Text style={rowStyles.value}>{item.units_consumed} units</Text>
       </View>
       <View style={rowStyles.row}>
         <Text style={rowStyles.label}>Rate</Text>
@@ -136,15 +138,17 @@ const rowStyles = StyleSheet.create({
 // ─── Main screen ──────────────────────────────────────────────────────────────
 export default function TenantElectricityScreen() {
   const { user } = useAuth();
-  const uid = user?.uid ?? '';
+  const uid = user?.id ?? '';
 
   const [tenant, setTenant] = useState<Tenant | null>(null);
   const [readings, setReadings] = useState<MeterReading[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
+  const [loadError, setLoadError] = useState<string | null>(null);
 
   const loadData = useCallback(async () => {
     if (!uid) { return; }
+    setLoadError(null);
     try {
       const t = tenant ?? (await getTenantByUserId(uid));
       if (!tenant) { setTenant(t); }
@@ -154,6 +158,7 @@ export default function TenantElectricityScreen() {
       }
     } catch (err) {
       console.warn('[ElectricityScreen] loadData error:', err);
+      setLoadError(getSupabaseErrorMessage(err, 'loading your electricity history'));
     } finally {
       setIsLoading(false);
       setRefreshing(false);
@@ -193,30 +198,47 @@ export default function TenantElectricityScreen() {
           <Text style={styles.loadingText}>Loading electricity history…</Text>
         </View>
       ) : (
-        <FlatList
-          data={readings}
-          keyExtractor={item => item.id}
-          renderItem={({ item, index }) => (
-            <MeterRow item={item} isLatest={index === 0} />
+        <>
+          {/* Error banner */}
+          {loadError && (
+            <View style={styles.errorBanner}>
+              <Icon name="alert-circle-outline" size={18} color={Colors.error} />
+              <Text style={styles.errorBannerText}>{loadError}</Text>
+              <TouchableOpacity
+                onPress={() => { setIsLoading(true); loadData(); }}
+                accessibilityLabel="Retry loading electricity history"
+              >
+                <Text style={styles.errorRetry}>Retry</Text>
+              </TouchableOpacity>
+            </View>
           )}
-          contentContainerStyle={styles.listContent}
-          showsVerticalScrollIndicator={false}
-          refreshControl={
-            <RefreshControl
-              refreshing={refreshing}
-              onRefresh={onRefresh}
-              tintColor={Colors.accent}
-              colors={[Colors.accent]}
-            />
-          }
-          ListEmptyComponent={
-            <EmptyState
-              icon="lightning-bolt-off"
-              title="No meter readings yet"
-              subtitle="Electricity readings entered by the owner will appear here."
-            />
-          }
-        />
+          <FlatList
+            data={readings}
+            keyExtractor={item => item.id}
+            renderItem={({ item, index }) => (
+              <MeterRow item={item} isLatest={index === 0} />
+            )}
+            contentContainerStyle={styles.listContent}
+            showsVerticalScrollIndicator={false}
+            refreshControl={
+              <RefreshControl
+                refreshing={refreshing}
+                onRefresh={onRefresh}
+                tintColor={Colors.accent}
+                colors={[Colors.accent]}
+              />
+            }
+            ListEmptyComponent={
+              loadError ? null : (
+                <EmptyState
+                  icon="lightning-bolt-off"
+                  title="No meter readings yet"
+                  subtitle="Electricity readings entered by the owner will appear here."
+                />
+              )
+            }
+          />
+        </>
       )}
     </SafeAreaView>
   );
@@ -248,4 +270,29 @@ const styles = StyleSheet.create({
   listContent: { padding: Spacing.base, paddingBottom: Spacing.xxl, flexGrow: 1 },
   loadingContainer: { flex: 1, alignItems: 'center', justifyContent: 'center' },
   loadingText: { fontSize: FontSize.base, color: Colors.textMuted },
+
+  errorBanner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: Colors.errorLight,
+    borderRadius: Radius.sm,
+    padding: Spacing.md,
+    margin: Spacing.base,
+    marginBottom: 0,
+    gap: Spacing.sm,
+    borderWidth: 1,
+    borderColor: '#F5C6C2',
+  },
+  errorBannerText: {
+    flex: 1,
+    fontSize: FontSize.sm,
+    color: Colors.error,
+    lineHeight: 18,
+  },
+  errorRetry: {
+    fontSize: FontSize.sm,
+    fontWeight: FontWeight.bold,
+    color: Colors.error,
+    textDecorationLine: 'underline',
+  },
 });

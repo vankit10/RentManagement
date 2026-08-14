@@ -5,7 +5,6 @@ import {
   StyleSheet,
   FlatList,
   TouchableOpacity,
-  Platform,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import Icon from 'react-native-vector-icons/MaterialCommunityIcons';
@@ -20,6 +19,7 @@ import {
   markAllNotificationsRead,
 } from '../../services/tenantService';
 import { formatDate } from '../../utils/helpers';
+import { getSupabaseErrorMessage } from '../../utils/supabaseErrors';
 import type { AppNotification, NotificationType, Tenant } from '../../types';
 
 // ─── Icon map per notification type ──────────────────────────────────────────
@@ -61,7 +61,7 @@ function NotifRow({
 
   return (
     <TouchableOpacity
-      style={[styles.row, !item.isRead && styles.rowUnread]}
+      style={[styles.row, !item.is_read && styles.rowUnread]}
       onPress={() => onPress(item.id)}
       accessibilityLabel={`Notification: ${item.title}`}
       activeOpacity={0.7}
@@ -74,12 +74,12 @@ function NotifRow({
           <Text style={styles.title} numberOfLines={1}>
             {item.title}
           </Text>
-          {!item.isRead && <View style={styles.unreadDot} />}
+          {!item.is_read && <View style={styles.unreadDot} />}
         </View>
         <Text style={styles.message} numberOfLines={2}>
           {item.message}
         </Text>
-        <Text style={styles.date}>{formatDate(item.createdAt)}</Text>
+        <Text style={styles.date}>{formatDate(item.created_at)}</Text>
       </View>
     </TouchableOpacity>
   );
@@ -88,24 +88,30 @@ function NotifRow({
 // ─── Main screen ──────────────────────────────────────────────────────────────
 export default function TenantNotificationsScreen() {
   const { user } = useAuth();
-  const uid = user?.uid ?? '';
+  const uid = user?.id ?? '';
 
   const [tenant, setTenant] = useState<Tenant | null>(null);
   const [notifications, setNotifications] = useState<AppNotification[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [markingAll, setMarkingAll] = useState(false);
+  const [loadError, setLoadError] = useState<string | null>(null);
 
   // ── Resolve tenant id once ──────────────────────────────────────────────────
   useEffect(() => {
     if (!uid) { return; }
     getTenantByUserId(uid)
       .then(t => setTenant(t))
-      .catch(err => console.warn('[NotificationsScreen] getTenant error:', err));
+      .catch(err => {
+        console.warn('[NotificationsScreen] getTenant error:', err);
+        setLoadError(getSupabaseErrorMessage(err, 'loading notifications'));
+        setIsLoading(false);
+      });
   }, [uid]);
 
   // ── Real-time listener ──────────────────────────────────────────────────────
   useEffect(() => {
     if (!tenant?.id) { return; }
+    setLoadError(null);
     const unsub = subscribeToNotifications(
       tenant.id,
       items => {
@@ -114,6 +120,7 @@ export default function TenantNotificationsScreen() {
       },
       err => {
         console.warn('[NotificationsScreen] subscribe error:', err);
+        setLoadError(getSupabaseErrorMessage(err, 'loading notifications'));
         setIsLoading(false);
       },
     );
@@ -123,7 +130,7 @@ export default function TenantNotificationsScreen() {
   // ── Mark single as read on tap ──────────────────────────────────────────────
   const handlePress = useCallback(async (id: string) => {
     const notif = notifications.find(n => n.id === id);
-    if (!notif || notif.isRead) { return; }
+    if (!notif || notif.is_read) { return; }
     try {
       await markNotificationRead(id);
     } catch (err) {
@@ -144,7 +151,7 @@ export default function TenantNotificationsScreen() {
     }
   }, [tenant?.id, markingAll]);
 
-  const unreadCount = notifications.filter(n => !n.isRead).length;
+  const unreadCount = notifications.filter(n => !n.is_read).length;
 
   return (
     <SafeAreaView style={styles.safe} edges={['top']}>
@@ -175,6 +182,12 @@ export default function TenantNotificationsScreen() {
       {isLoading ? (
         <View style={styles.loadingContainer}>
           <Text style={styles.loadingText}>Loading notifications…</Text>
+        </View>
+      ) : loadError ? (
+        <View style={styles.errorContainer}>
+          <Icon name="alert-circle-outline" size={40} color={Colors.error} />
+          <Text style={styles.errorTitle}>Could not load notifications</Text>
+          <Text style={styles.errorMessage}>{loadError}</Text>
         </View>
       ) : (
         <FlatList
@@ -268,4 +281,24 @@ const styles = StyleSheet.create({
 
   loadingContainer: { flex: 1, alignItems: 'center', justifyContent: 'center' },
   loadingText: { fontSize: FontSize.base, color: Colors.textMuted },
+
+  errorContainer: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: Spacing.xxl,
+    gap: Spacing.sm,
+  },
+  errorTitle: {
+    fontSize: FontSize.md,
+    fontWeight: FontWeight.semiBold,
+    color: Colors.textPrimary,
+    textAlign: 'center',
+  },
+  errorMessage: {
+    fontSize: FontSize.sm,
+    color: Colors.textMuted,
+    textAlign: 'center',
+    lineHeight: 20,
+  },
 });

@@ -10,12 +10,13 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import Icon from 'react-native-vector-icons/MaterialCommunityIcons';
-
 import { Colors, FontSize, FontWeight, Radius, Spacing } from '../../constants';
 import InfoRow from '../../components/InfoRow';
 import { useAuth } from '../../context/AuthContext';
-import { getTenantByUserId } from '../../services/tenantService';
-import { formatDate } from '../../utils/helpers';
+import AuthInput from '../../components/AuthInput';
+import { getLatestMeterReading, getRentRecords, getTenantByUserId } from '../../services/tenantService';
+import { formatCurrency, formatDate } from '../../utils/helpers';
+import { getSupabaseErrorMessage } from '../../utils/supabaseErrors';
 import type { Tenant } from '../../types';
 
 // ─── Avatar with initials ─────────────────────────────────────────────────────
@@ -103,22 +104,43 @@ const sectionStyles = StyleSheet.create({
 
 // ─── Main screen ──────────────────────────────────────────────────────────────
 export default function TenantProfileScreen() {
-  const { user, logout } = useAuth();
-  const uid = user?.uid ?? '';
+  const { user, logout, updateProfile } = useAuth();
+  const uid = user?.id ?? '';
   const profile = user?.profile;
 
   const [tenant, setTenant] = useState<Tenant | null>(null);
   const [isLoading, setIsLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const [pendingRent, setPendingRent] = useState(0);
+  const [latestElectricityAmount, setLatestElectricityAmount] = useState(0);
+  const [isEditing, setIsEditing] = useState(false);
+  const [isSaving, setIsSaving] = useState(false);
+  const [editName, setEditName] = useState('');
+  const [editEmail, setEditEmail] = useState('');
+  const [editPhone, setEditPhone] = useState('');
 
   useEffect(() => {
     if (!uid) { return; }
     getTenantByUserId(uid)
-      .then(t => {
+      .then(async t => {
         setTenant(t);
+        if (t) {
+          const [rentRecords, latestMeter] = await Promise.all([
+            getRentRecords(t.id),
+            getLatestMeterReading(t.id),
+          ]);
+          setPendingRent(
+            rentRecords
+              .filter(record => record.status === 'Pending' || record.status === 'Overdue')
+              .reduce((total, record) => total + Number(record.amount ?? 0), 0),
+          );
+          setLatestElectricityAmount(Number(latestMeter?.amount ?? 0));
+        }
         setIsLoading(false);
       })
       .catch(err => {
         console.warn('[ProfileScreen] getTenant error:', err);
+        setLoadError(getSupabaseErrorMessage(err, 'loading your profile'));
         setIsLoading(false);
       });
   }, [uid]);
@@ -140,13 +162,43 @@ export default function TenantProfileScreen() {
   }, [logout]);
 
   const name = profile?.name ?? 'Tenant';
+  const totalOutstanding = pendingRent + latestElectricityAmount;
+
+  const beginEditing = () => {
+    setEditName(profile?.name ?? '');
+    setEditEmail(profile?.email ?? '');
+    setEditPhone(profile?.phone ?? '');
+    setIsEditing(true);
+  };
+
+  const saveProfile = async () => {
+    if (!editName.trim()) {
+      Alert.alert('Name required', 'Please enter your full name.');
+      return;
+    }
+    setIsSaving(true);
+    try {
+      await updateProfile({ name: editName.trim(), email: editEmail.trim() || undefined, phone: editPhone.trim() });
+      setIsEditing(false);
+    } catch (err) {
+      Alert.alert('Update Failed', getSupabaseErrorMessage(err, 'updating your profile'));
+    } finally {
+      setIsSaving(false);
+    }
+  };
 
   return (
     <SafeAreaView style={styles.safe} edges={['top']}>
       {/* Header */}
       <View style={styles.header}>
-        <Text style={styles.headerTitle}>Profile</Text>
-        <Text style={styles.headerSub}>Adarsh Infra</Text>
+        <View>
+          <Text style={styles.headerTitle}>Profile</Text>
+          <Text style={styles.headerSub}>Adarsh Infra</Text>
+        </View>
+        <TouchableOpacity style={styles.editBtn} onPress={beginEditing} accessibilityLabel="Edit profile">
+          <Icon name="pencil-outline" size={18} color={Colors.accent} />
+          <Text style={styles.editBtnText}>Edit</Text>
+        </TouchableOpacity>
       </View>
 
       <ScrollView
@@ -162,6 +214,34 @@ export default function TenantProfileScreen() {
             <Text style={styles.roleText}>Tenant</Text>
           </View>
         </View>
+
+        {isEditing && (
+          <SectionCard title="Edit Profile">
+            <AuthInput label="Full Name" value={editName} onChangeText={setEditName} autoCapitalize="words" />
+            <AuthInput label="Email" value={editEmail} onChangeText={setEditEmail} keyboardType="email-address" autoCapitalize="none" />
+            <AuthInput label="Phone" value={editPhone} onChangeText={setEditPhone} keyboardType="phone-pad" />
+            <Text style={styles.editNote}>These changes update your profile details only. Your login identifier stays the same.</Text>
+            <View style={styles.editActions}>
+              <TouchableOpacity style={styles.cancelBtn} onPress={() => setIsEditing(false)} disabled={isSaving}><Text style={styles.cancelText}>Cancel</Text></TouchableOpacity>
+              <TouchableOpacity style={styles.saveBtn} onPress={saveProfile} disabled={isSaving}><Text style={styles.saveText}>{isSaving ? 'Saving…' : 'Save Changes'}</Text></TouchableOpacity>
+            </View>
+          </SectionCard>
+        )}
+
+        {!isLoading && tenant && (
+          <View style={styles.outstandingCard}>
+            <View style={styles.outstandingIcon}><Icon name="cash-clock" size={25} color={Colors.textInverse} /></View>
+            <View style={styles.outstandingMain}>
+              <Text style={styles.outstandingLabel}>TOTAL OUTSTANDING</Text>
+              <Text style={styles.outstandingAmount}>{formatCurrency(totalOutstanding)}</Text>
+              <Text style={styles.outstandingHint}>Pending rent and latest electricity bill</Text>
+            </View>
+            <View style={styles.outstandingBreakdown}>
+              <Text style={styles.breakdownLabel}>Rent</Text><Text style={styles.breakdownValue}>{formatCurrency(pendingRent)}</Text>
+              <Text style={styles.breakdownLabel}>Electricity</Text><Text style={styles.breakdownValue}>{formatCurrency(latestElectricityAmount)}</Text>
+            </View>
+          </View>
+        )}
 
         {/* ── Personal info ─────────────────────────────── */}
         <SectionCard title="Personal Information">
@@ -183,37 +263,46 @@ export default function TenantProfileScreen() {
         {/* ── Rental info ───────────────────────────────── */}
         {!isLoading && (
           <SectionCard title="Rental Information">
-            <InfoRow
-              icon="door-open"
-              label="Room Number"
-              value={tenant?.roomNumber ?? '—'}
-            />
-            <View style={styles.rowDivider} />
-            <InfoRow
-              icon="calendar-check-outline"
-              label="Joining Date"
-              value={formatDate(tenant?.joiningDate)}
-            />
-            <View style={styles.rowDivider} />
-            <InfoRow
-              icon="home-account"
-              label="Status"
-              value={
-                tenant
-                  ? tenant.status.charAt(0).toUpperCase() + tenant.status.slice(1)
-                  : '—'
-              }
-              valueColor={tenant?.status === 'active' ? Colors.success : Colors.error}
-            />
-            {tenant?.rentAmount != null && (
+            {loadError ? (
+              <View style={styles.rentalErrorRow}>
+                <Icon name="alert-circle-outline" size={16} color={Colors.error} />
+                <Text style={styles.rentalErrorText}>{loadError}</Text>
+              </View>
+            ) : (
               <>
+                <InfoRow
+                  icon="door-open"
+                  label="Room Number"
+                  value={tenant?.room_number ?? '—'}
+                />
                 <View style={styles.rowDivider} />
                 <InfoRow
-                  icon="cash-multiple"
-                  label="Monthly Rent"
-                  value={`₹${tenant.rentAmount.toLocaleString('en-IN')}`}
-                  valueColor={Colors.primary}
+                  icon="calendar-check-outline"
+                  label="Joining Date"
+                  value={formatDate(tenant?.joining_date)}
                 />
+                <View style={styles.rowDivider} />
+                <InfoRow
+                  icon="home-account"
+                  label="Status"
+                  value={
+                    tenant
+                      ? tenant.status.charAt(0).toUpperCase() + tenant.status.slice(1)
+                      : '—'
+                  }
+                  valueColor={tenant?.status === 'active' ? Colors.success : Colors.error}
+                />
+                {tenant?.rent_amount != null && (
+                  <>
+                    <View style={styles.rowDivider} />
+                    <InfoRow
+                      icon="cash-multiple"
+                      label="Monthly Rent"
+                      value={`₹${tenant.rent_amount.toLocaleString('en-IN')}`}
+                      valueColor={Colors.primary}
+                    />
+                  </>
+                )}
               </>
             )}
           </SectionCard>
@@ -224,7 +313,7 @@ export default function TenantProfileScreen() {
           <InfoRow
             icon="calendar-outline"
             label="Member Since"
-            value={formatDate(profile?.createdAt)}
+            value={formatDate(profile?.created_at)}
           />
         </SectionCard>
 
@@ -258,6 +347,12 @@ const styles = StyleSheet.create({
   },
   headerTitle: { fontSize: FontSize.xl, fontWeight: FontWeight.bold, color: Colors.textInverse },
   headerSub: { fontSize: FontSize.sm, color: Colors.accent, marginTop: 2 },
+  editBtn: { flexDirection: 'row', alignItems: 'center', gap: 4, padding: Spacing.sm },
+  editBtnText: { color: Colors.accent, fontWeight: FontWeight.semiBold, fontSize: FontSize.sm },
+  outstandingCard: { backgroundColor: Colors.primary, borderRadius: Radius.md, padding: Spacing.base, marginBottom: Spacing.base, flexDirection: 'row', alignItems: 'center', gap: Spacing.sm },
+  outstandingIcon: { width: 42, height: 42, borderRadius: Radius.full, backgroundColor: Colors.accentDark, alignItems: 'center', justifyContent: 'center' },
+  outstandingMain: { flex: 1 }, outstandingLabel: { color: Colors.accent, fontSize: FontSize.xs, fontWeight: FontWeight.semiBold, letterSpacing: 0.6 }, outstandingAmount: { color: Colors.textInverse, fontSize: FontSize.xxl, fontWeight: FontWeight.bold, marginTop: 2 }, outstandingHint: { color: Colors.accent, fontSize: FontSize.xs, marginTop: 2 },
+  outstandingBreakdown: { alignItems: 'flex-end' }, breakdownLabel: { color: Colors.accent, fontSize: FontSize.xs }, breakdownValue: { color: Colors.textInverse, fontSize: FontSize.sm, fontWeight: FontWeight.semiBold, marginBottom: 3 },
 
   content: { padding: Spacing.base, paddingBottom: Spacing.xxxl },
 
@@ -292,6 +387,12 @@ const styles = StyleSheet.create({
   },
 
   rowDivider: { height: 1, backgroundColor: Colors.divider },
+  editNote: { fontSize: FontSize.xs, color: Colors.textMuted, marginTop: -Spacing.sm, marginBottom: Spacing.base },
+  editActions: { flexDirection: 'row', justifyContent: 'flex-end', gap: Spacing.sm, paddingBottom: Spacing.base },
+  cancelBtn: { paddingHorizontal: Spacing.base, paddingVertical: Spacing.sm },
+  cancelText: { color: Colors.textSecondary, fontWeight: FontWeight.medium },
+  saveBtn: { backgroundColor: Colors.primary, borderRadius: Radius.sm, paddingHorizontal: Spacing.base, paddingVertical: Spacing.sm },
+  saveText: { color: Colors.textInverse, fontWeight: FontWeight.semiBold },
 
   // Logout
   logoutBtn: {
@@ -317,5 +418,18 @@ const styles = StyleSheet.create({
     textAlign: 'center',
     fontSize: FontSize.xs,
     color: Colors.textMuted,
+  },
+
+  rentalErrorRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: Spacing.sm,
+    paddingVertical: Spacing.md,
+  },
+  rentalErrorText: {
+    flex: 1,
+    fontSize: FontSize.sm,
+    color: Colors.error,
+    lineHeight: 18,
   },
 });

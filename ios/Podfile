@@ -13,16 +13,12 @@ prepare_react_native_project!
 # Firebase will be installed through CocoaPods.
 $RNFirebaseDisableSPM = true
 
-# Generate module maps for dependencies required by
-# Firebase Swift pods when using static libraries.
-use_modular_headers!
-
-linkage = ENV['USE_FRAMEWORKS']
-
-if linkage != nil
-  Pod::UI.puts "Configuring Pod with #{linkage}ally linked Frameworks".green
-  use_frameworks! :linkage => linkage.to_sym
-end
+# Firebase 12 includes Swift pods. Static frameworks are the supported CocoaPods
+# integration for React Native Firebase and avoid globally modularizing gRPC.
+linkage = ENV.fetch('USE_FRAMEWORKS', 'static')
+Pod::UI.puts "Configuring Pod with #{linkage}ally linked Frameworks".green
+use_frameworks! :linkage => linkage.to_sym
+$RNFirebaseAsStaticFramework = true
 
 target 'RentManagementSystem' do
   config = use_native_modules!
@@ -34,6 +30,9 @@ target 'RentManagementSystem' do
     :app_path => "#{Pod::Config.instance.installation_root}/.."
   )
 
+  # react-native-vector-icons
+  pod 'RNVectorIcons', :path => '../node_modules/react-native-vector-icons'
+
   post_install do |installer|
     react_native_post_install(
       installer,
@@ -41,5 +40,6 @@ target 'RentManagementSystem' do
       :mac_catalyst_enabled => false
       # :ccache_enabled => true
     )
+
   end
 end

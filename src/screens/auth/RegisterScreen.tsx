@@ -16,7 +16,7 @@ import Toast from 'react-native-toast-message';
 
 import { Colors, Spacing, FontSize, FontWeight, Radius } from '../../constants';
 import AuthInput from '../../components/AuthInput';
-import { registerTenant } from '../../services/authService';
+import { registerUser } from '../../services/authService';
 import { isValidEmail, isValidPhone } from '../../utils/helpers';
 import { getFirebaseErrorMessage } from '../../utils/firebaseErrors';
 import type { AuthStackParamList } from '../../types';
@@ -37,6 +37,8 @@ export default function RegisterScreen({ navigation }: Props) {
   const [phone, setPhone] = useState('');
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
+  const [role, setRole] = useState<'tenant' | 'owner'>('tenant');
+  const [showDropdown, setShowDropdown] = useState(false);
   const [errors, setErrors] = useState<FormErrors>({});
   const [isLoading, setIsLoading] = useState(false);
 
@@ -88,13 +90,14 @@ export default function RegisterScreen({ navigation }: Props) {
     if (!validate()) { return; }
     setIsLoading(true);
     try {
-      await registerTenant({
+      await registerUser({
         name: name.trim(),
         email: email.trim().toLowerCase(),
         phone: phone.trim(),
         password,
+        role,
       });
-      // AuthContext will pick up the new user and route to TenantApp automatically
+      // AuthContext will pick up the new user and route to TenantApp or OwnerApp automatically
       Toast.show({
         type: 'success',
         text1: 'Account Created',
@@ -137,12 +140,70 @@ export default function RegisterScreen({ navigation }: Props) {
             </TouchableOpacity>
             <View style={styles.headerText}>
               <Text style={styles.headerTitle}>Create Account</Text>
-              <Text style={styles.headerSub}>Register as a tenant</Text>
+              <Text style={styles.headerSub}>Register as a {role}</Text>
             </View>
           </View>
 
           {/* ── Form card ───────────────────────────────── */}
-          <View style={styles.card}>
+          <View style={[styles.card, { zIndex: 1 }]}>
+
+            {/* ── Role Dropdown ────────────────────────────── */}
+            <View style={{ marginBottom: Spacing.lg, zIndex: 10 }}>
+              <Text style={{ fontSize: FontSize.sm, fontWeight: FontWeight.bold, color: Colors.textPrimary, marginBottom: Spacing.xs }}>
+                Account Type
+              </Text>
+              <TouchableOpacity
+                style={{
+                  flexDirection: 'row',
+                  alignItems: 'center',
+                  justifyContent: 'space-between',
+                  backgroundColor: Colors.background,
+                  borderWidth: 1,
+                  borderColor: Colors.border,
+                  borderRadius: Radius.md,
+                  paddingHorizontal: Spacing.md,
+                  height: 48,
+                }}
+                onPress={() => setShowDropdown(!showDropdown)}
+              >
+                <Text style={{ color: Colors.textPrimary, fontSize: FontSize.base, textTransform: 'capitalize' }}>
+                  {role}
+                </Text>
+                <Icon name={showDropdown ? "chevron-up" : "chevron-down"} size={20} color={Colors.textMuted} />
+              </TouchableOpacity>
+
+              {showDropdown && (
+                <View style={{
+                  position: 'absolute',
+                  top: 72,
+                  left: 0,
+                  right: 0,
+                  backgroundColor: Colors.surface,
+                  borderWidth: 1,
+                  borderColor: Colors.border,
+                  borderRadius: Radius.md,
+                  elevation: 5,
+                  shadowColor: '#000',
+                  shadowOffset: { width: 0, height: 2 },
+                  shadowOpacity: 0.2,
+                  shadowRadius: 4,
+                  zIndex: 100,
+                }}>
+                  <TouchableOpacity
+                    style={{ padding: Spacing.md, borderBottomWidth: 1, borderBottomColor: Colors.border }}
+                    onPress={() => { setRole('tenant'); setShowDropdown(false); }}
+                  >
+                    <Text style={{ fontSize: FontSize.base, color: role === 'tenant' ? Colors.primary : Colors.textPrimary }}>Tenant</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    style={{ padding: Spacing.md }}
+                    onPress={() => { setRole('owner'); setShowDropdown(false); }}
+                  >
+                    <Text style={{ fontSize: FontSize.base, color: role === 'owner' ? Colors.primary : Colors.textPrimary }}>Owner</Text>
+                  </TouchableOpacity>
+                </View>
+              )}
+            </View>
 
             <AuthInput
               label="Full Name"

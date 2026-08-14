@@ -1,12 +1,11 @@
 /**
- * Firebase service initialisation — @react-native-firebase v26 modular API
- * Auto-initialises from google-services.json (Android) / GoogleService-Info.plist (iOS)
- * Re-exports singleton instances used across the app.
+ * Firebase — FCM only
+ *
+ * Firebase is used exclusively for push notifications (FCM).
+ * All auth and database operations use Supabase.
+ *
+ * Auto-initialises from google-services.json (Android) / GoogleService-Info.plist (iOS).
  */
-import { getAuth } from '@react-native-firebase/auth';
-import { getFirestore } from '@react-native-firebase/firestore';
 import { getMessaging } from '@react-native-firebase/messaging';
 
-export const auth = getAuth();
-export const db = getFirestore();
 export const messaging = getMessaging();
