@@ -184,7 +184,7 @@ export default function SendNotificationScreen({ route, navigation }: Props) {
                       </View>
                       <View style={styles.tenantInfo}>
                         <Text style={styles.tenantName}>{t.name}</Text>
-                        <Text style={styles.tenantMeta}>Room {t.roomNumber}</Text>
+                        <Text style={styles.tenantMeta}>Room {t.room_number}</Text>
                       </View>
                       {selectedTenantId === t.id && (
                         <Icon name="check-circle" size={20} color={Colors.accent} />

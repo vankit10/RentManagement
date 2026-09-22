@@ -80,7 +80,7 @@ function PaymentRow({ record }: { record: { tenantId: string; month: string; amo
       </View>
       <View style={payStyles.info}>
         <Text style={payStyles.month}>{record.tenantName || 'Unknown Tenant'}</Text>
-        <Text style={payStyles.date}>{formatMonth(record.month + '-01')} • {formatDate(record.paidDate)}</Text>
+        <Text style={payStyles.date}>{formatMonth(record.month + '-01')} • {formatDate(record.paid_date)}</Text>
       </View>
       <View style={payStyles.right}>
         <Text style={payStyles.amount}>{formatCurrency(record.amount)}</Text>

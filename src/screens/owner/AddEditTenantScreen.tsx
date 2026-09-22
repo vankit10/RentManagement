@@ -87,13 +87,17 @@ export default function AddEditTenantScreen({ route, navigation }: Props) {
   const [errors, setErrors] = useState<FormErrors>({});
   const [isLoadingTenant, setIsLoadingTenant] = useState(isEdit);
   const [isSaving, setIsSaving] = useState(false);
+  const [loadError, setLoadError] = useState<string | null>(null);
 
   // ── Load existing tenant (edit mode) ─────────────────────────────────────
   useEffect(() => {
     if (!isEdit || !tenantId) { return; }
     getTenantById(tenantId)
       .then(t => {
-        if (!t) { return; }
+        if (!t) {
+          setLoadError('Tenant not found. They may have been removed.');
+          return;
+        }
         setExistingTenant(t);
         setForm({
           name: t.name,
@@ -111,7 +115,20 @@ export default function AddEditTenantScreen({ route, navigation }: Props) {
           confirmPassword: '',
         });
       })
-      .catch(err => console.warn('[AddEditTenant] load error:', err))
+      .catch(err => {
+        console.warn('[AddEditTenant] load error:', err);
+        const msg = err instanceof Error ? err.message : String(err);
+        // Network / DB errors get a friendly message; others fall through to generic
+        if (
+          msg.toLowerCase().includes('network') ||
+          msg.toLowerCase().includes('fetch') ||
+          msg.toLowerCase().includes('timeout')
+        ) {
+          setLoadError('Network error. Please check your connection and try again.');
+        } else {
+          setLoadError('Could not load tenant details. Please go back and try again.');
+        }
+      })
       .finally(() => setIsLoadingTenant(false));
   }, [isEdit, tenantId]);
 
@@ -242,7 +259,7 @@ export default function AddEditTenantScreen({ route, navigation }: Props) {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [form, isEdit, tenantId, existingTenant, navigation]);
 
-  // ── Loading state ─────────────────────────────────────────────────────────
+  // ── Loading / error state ─────────────────────────────────────────────────
   if (isLoadingTenant) {
     return (
       <SafeAreaView style={styles.safe} edges={['top']}>
@@ -255,6 +272,32 @@ export default function AddEditTenantScreen({ route, navigation }: Props) {
         </View>
         <View style={styles.loadingContainer}>
           <ActivityIndicator size="large" color={Colors.accent} />
+        </View>
+      </SafeAreaView>
+    );
+  }
+
+  if (loadError) {
+    return (
+      <SafeAreaView style={styles.safe} edges={['top']}>
+        <View style={styles.header}>
+          <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backBtn}>
+            <Icon name="arrow-left" size={24} color={Colors.textInverse} />
+          </TouchableOpacity>
+          <Text style={styles.headerTitle}>Edit Tenant</Text>
+          <View style={{ width: 40 }} />
+        </View>
+        <View style={styles.errorContainer}>
+          <Icon name="alert-circle-outline" size={48} color={Colors.error} />
+          <Text style={styles.errorTitle}>Could not load tenant</Text>
+          <Text style={styles.errorMessage}>{loadError}</Text>
+          <TouchableOpacity
+            style={styles.errorGoBackBtn}
+            onPress={() => navigation.goBack()}
+            accessibilityLabel="Go back"
+          >
+            <Text style={styles.errorGoBackText}>Go Back</Text>
+          </TouchableOpacity>
         </View>
       </SafeAreaView>
     );
@@ -579,4 +622,38 @@ const styles = StyleSheet.create({
   },
 
   loadingContainer: { flex: 1, alignItems: 'center', justifyContent: 'center' },
+
+  errorContainer: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: Spacing.xxl,
+    gap: Spacing.sm,
+  },
+  errorTitle: {
+    fontSize: FontSize.lg,
+    fontWeight: FontWeight.bold,
+    color: Colors.textPrimary,
+    textAlign: 'center',
+    marginTop: Spacing.sm,
+  },
+  errorMessage: {
+    fontSize: FontSize.base,
+    color: Colors.textMuted,
+    textAlign: 'center',
+    lineHeight: 22,
+    marginBottom: Spacing.md,
+  },
+  errorGoBackBtn: {
+    backgroundColor: Colors.primary,
+    borderRadius: Radius.sm,
+    paddingVertical: Spacing.sm,
+    paddingHorizontal: Spacing.xl,
+    marginTop: Spacing.xs,
+  },
+  errorGoBackText: {
+    fontSize: FontSize.base,
+    fontWeight: FontWeight.semiBold,
+    color: Colors.textInverse,
+  },
 });

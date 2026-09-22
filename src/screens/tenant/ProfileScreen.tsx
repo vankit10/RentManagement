@@ -267,6 +267,37 @@ export default function TenantProfileScreen() {
               <View style={styles.rentalErrorRow}>
                 <Icon name="alert-circle-outline" size={16} color={Colors.error} />
                 <Text style={styles.rentalErrorText}>{loadError}</Text>
+                <TouchableOpacity
+                  onPress={() => {
+                    if (!uid) { return; }
+                    setLoadError(null);
+                    setIsLoading(true);
+                    getTenantByUserId(uid)
+                      .then(async t => {
+                        setTenant(t);
+                        if (t) {
+                          const [rentRecords, latestMeter] = await Promise.all([
+                            getRentRecords(t.id),
+                            getLatestMeterReading(t.id),
+                          ]);
+                          setPendingRent(
+                            rentRecords
+                              .filter(record => record.status === 'Pending' || record.status === 'Overdue')
+                              .reduce((total, record) => total + Number(record.amount ?? 0), 0),
+                          );
+                          setLatestElectricityAmount(Number(latestMeter?.amount ?? 0));
+                        }
+                        setIsLoading(false);
+                      })
+                      .catch(err => {
+                        setLoadError(getSupabaseErrorMessage(err, 'loading your profile'));
+                        setIsLoading(false);
+                      });
+                  }}
+                  accessibilityLabel="Retry loading rental information"
+                >
+                  <Text style={styles.rentalRetryText}>Retry</Text>
+                </TouchableOpacity>
               </View>
             ) : (
               <>
@@ -431,5 +462,11 @@ const styles = StyleSheet.create({
     fontSize: FontSize.sm,
     color: Colors.error,
     lineHeight: 18,
+  },
+  rentalRetryText: {
+    fontSize: FontSize.sm,
+    fontWeight: FontWeight.bold,
+    color: Colors.error,
+    textDecorationLine: 'underline',
   },
 });

@@ -61,14 +61,14 @@ function TenantCard({
         </View>
         <Text style={styles.meta} numberOfLines={1}>
           <Icon name="door-open" size={12} color={Colors.textMuted} />
-          {' Room '}{item.roomNumber}
+          {' Room '}{item.room_number}
           {'  ·  '}
           <Icon name="phone-outline" size={12} color={Colors.textMuted} />
           {' '}{item.phone}
         </Text>
         <Text style={styles.meta2}>
-          Since {formatDate(item.joiningDate)}
-          {item.rentAmount != null ? `  ·  ₹${item.rentAmount.toLocaleString('en-IN')}/mo` : ''}
+          Since {formatDate(item.joining_date)}
+          {item.rent_amount != null ? `  ·  ₹${item.rent_amount.toLocaleString('en-IN')}/mo` : ''}
         </Text>
       </View>
 
@@ -163,7 +163,7 @@ export default function OwnerTenantsScreen() {
       list = list.filter(
         t =>
           t.name.toLowerCase().includes(q) ||
-          t.roomNumber.toLowerCase().includes(q) ||
+          t.room_number.toLowerCase().includes(q) ||
           t.phone.includes(q) ||
           (t.email ?? '').toLowerCase().includes(q),
       );

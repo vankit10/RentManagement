@@ -188,6 +188,25 @@ export default function TenantNotificationsScreen() {
           <Icon name="alert-circle-outline" size={40} color={Colors.error} />
           <Text style={styles.errorTitle}>Could not load notifications</Text>
           <Text style={styles.errorMessage}>{loadError}</Text>
+          <TouchableOpacity
+            style={styles.errorRetryBtn}
+            onPress={() => {
+              setLoadError(null);
+              setIsLoading(true);
+              // Re-trigger tenant resolution which restarts the whole load chain
+              if (uid) {
+                getTenantByUserId(uid)
+                  .then(t => { setTenant(t); })
+                  .catch(err => {
+                    setLoadError(getSupabaseErrorMessage(err, 'loading notifications'));
+                    setIsLoading(false);
+                  });
+              }
+            }}
+            accessibilityLabel="Retry loading notifications"
+          >
+            <Text style={styles.errorRetryBtnText}>Try Again</Text>
+          </TouchableOpacity>
         </View>
       ) : (
         <FlatList
@@ -300,5 +319,17 @@ const styles = StyleSheet.create({
     color: Colors.textMuted,
     textAlign: 'center',
     lineHeight: 20,
+  },
+  errorRetryBtn: {
+    backgroundColor: Colors.primary,
+    borderRadius: Radius.sm,
+    paddingVertical: Spacing.sm,
+    paddingHorizontal: Spacing.xl,
+    marginTop: Spacing.md,
+  },
+  errorRetryBtnText: {
+    fontSize: FontSize.base,
+    fontWeight: FontWeight.semiBold,
+    color: Colors.textInverse,
   },
 });

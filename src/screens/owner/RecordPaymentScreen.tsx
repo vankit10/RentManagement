@@ -80,8 +80,8 @@ export default function RecordPaymentScreen({ route, navigation }: Props) {
         setTenant(t);
         setExistingRecords(recs);
         // Pre-fill amount from tenant config
-        if (t?.rentAmount != null) {
-          setAmountStr(String(t.rentAmount));
+        if (t?.rent_amount != null) {
+          setAmountStr(String(t.rent_amount));
         }
       })
       .catch(err => {
@@ -133,7 +133,7 @@ export default function RecordPaymentScreen({ route, navigation }: Props) {
           tenantId,
           month: selectedMonth,
           amount: Number(amountStr),
-          dueDay: tenant.dueDate ?? 5,
+          dueDay: tenant.due_day ?? 5,
         });
       }
 
@@ -237,9 +237,9 @@ export default function RecordPaymentScreen({ route, navigation }: Props) {
               <View style={styles.tenantInfo}>
                 <Text style={styles.tenantName}>{tenant.name}</Text>
                 <Text style={styles.tenantMeta}>
-                  Room {tenant.roomNumber}
-                  {tenant.rentAmount != null
-                    ? `  ·  ₹${tenant.rentAmount.toLocaleString('en-IN')}/mo`
+                  Room {tenant.room_number}
+                  {tenant.rent_amount != null
+                    ? `  ·  ₹${tenant.rent_amount.toLocaleString('en-IN')}/mo`
                     : ''}
                 </Text>
               </View>
@@ -288,7 +288,7 @@ export default function RecordPaymentScreen({ route, navigation }: Props) {
               <Icon name="check-circle" size={16} color={Colors.success} />
               <Text style={styles.alreadyPaidText}>
                 {formatMonth(selectedMonth + '-01')} is already marked as Paid on{' '}
-                {formatDate(existingForMonth.paidDate)}.
+                {formatDate(existingForMonth.paid_date)}.
               </Text>
             </View>
           )}
@@ -385,8 +385,8 @@ export default function RecordPaymentScreen({ route, navigation }: Props) {
                           {formatMonth(rec.month + '-01')}
                         </Text>
                         <Text style={styles.histDate}>
-                          Due {formatDate(rec.dueDate)}
-                          {rec.paidDate ? `  ·  Paid ${formatDate(rec.paidDate)}` : ''}
+                          Due {formatDate(rec.due_date)}
+                          {rec.paid_date ? `  ·  Paid ${formatDate(rec.paid_date)}` : ''}
                         </Text>
                       </View>
                       <View style={styles.histRight}>

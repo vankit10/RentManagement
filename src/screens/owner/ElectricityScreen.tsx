@@ -50,11 +50,11 @@ function ReadingRow({
       <View style={styles.rowInfo}>
         <Text style={styles.rowName} numberOfLines={1}>{tenantName}</Text>
         <Text style={styles.rowMeta}>
-          Room {roomNumber}{'  ·  '}{formatDate(record.readingDate)}
+          Room {roomNumber}{'  ·  '}{formatDate(record.reading_date)}
         </Text>
         <Text style={styles.rowReading}>
-          {record.previousReading} → {record.currentReading}
-          {'  ·  '}{record.unitsConsumed} units @ ₹{record.rate}/unit
+          {record.previous_reading} → {record.current_reading}
+          {'  ·  '}{record.units_consumed} units @ ₹{record.rate}/unit
         </Text>
       </View>
       <View style={styles.rowRight}>
@@ -155,13 +155,13 @@ export default function OwnerElectricityScreen() {
           data={readings}
           keyExtractor={item => item.id}
           renderItem={({ item }) => {
-            const tenant = tenantMap[item.tenantId];
+            const tenant = tenantMap[item.tenant_id];
             return (
               <ReadingRow
                 record={item}
                 tenantName={tenant?.name ?? 'Unknown'}
-                roomNumber={tenant?.roomNumber ?? '—'}
-                onPress={() => navigation.navigate('TenantDetail', { tenantId: item.tenantId })}
+                roomNumber={tenant?.room_number ?? '—'}
+                onPress={() => navigation.navigate('TenantDetail', { tenantId: item.tenant_id })}
               />
             );
           }}

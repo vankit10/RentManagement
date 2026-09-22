@@ -87,7 +87,7 @@ function NotifRow({
         </View>
         <Text style={styles.rowMessage} numberOfLines={2}>{item.message}</Text>
         <Text style={styles.rowMeta}>
-          To: {tenantName}{'  ·  '}{formatDate(item.createdAt)}
+          To: {tenantName}{'  ·  '}{formatDate(item.created_at)}
         </Text>
       </View>
     </TouchableOpacity>
@@ -177,8 +177,8 @@ export default function OwnerNotificationsScreen() {
           renderItem={({ item }) => (
             <NotifRow
               item={item}
-              tenantName={tenantMap[item.tenantId]?.name ?? 'Unknown Tenant'}
-              onPress={() => navigation.navigate('TenantDetail', { tenantId: item.tenantId })}
+              tenantName={tenantMap[item.tenant_id]?.name ?? 'Unknown Tenant'}
+              onPress={() => navigation.navigate('TenantDetail', { tenantId: item.tenant_id })}
             />
           )}
           contentContainerStyle={styles.listContent}

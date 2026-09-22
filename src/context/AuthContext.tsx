@@ -42,7 +42,7 @@ const AuthContext = createContext<AuthContextType>({
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<AuthUser | null>(null);
   const [isLoading, setIsLoading] = useState(true);
-  const [authError, _setAuthError] = useState<string | null>(null);
+  const [authError, setAuthError] = useState<string | null>(null);
 
   // ── Fetch profile from profiles table ──────────────────────────────────────
   const fetchProfile = useCallback(
@@ -72,7 +72,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       console.error(
         `[AuthContext] All profile fetch attempts failed for id: ${authUser.id}.`,
       );
-      return null;
+      // Throw so processUser can surface the error to the user rather than
+      // silently sending them to the login screen with no explanation.
+      throw new Error('PROFILE_FETCH_FAILED');
     },
     [],
   );
@@ -81,7 +83,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const handlePhoneUser = useCallback(
     async (authUser: User): Promise<UserProfile | null> => {
       // First check if profile already exists (subsequent logins)
-      let profile = await fetchProfile(authUser);
+      let profile = await fetchProfile(authUser);   // throws PROFILE_FETCH_FAILED on total failure
       if (profile) { return profile; }
 
       // First login — link the auth user to the pre-registered tenant record
@@ -89,19 +91,17 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
       try {
         await linkTenantAccountOnFirstLogin(authUser.id, phone);
-        profile = await fetchProfile(authUser);
+        profile = await fetchProfile(authUser);     // throws PROFILE_FETCH_FAILED on total failure
         return profile;
       } catch (err: unknown) {
         const msg = err instanceof Error ? err.message : String(err);
         if (msg === 'TENANT_NOT_REGISTERED') {
-          console.warn(
-            '[AuthContext] Phone not registered by owner. Signing out.',
-          );
+          console.warn('[AuthContext] Phone not registered by owner. Signing out.');
           await supabase.auth.signOut();
-        } else {
-          console.error('[AuthContext] linkTenantAccountOnFirstLogin error:', msg);
+          return null;
         }
-        return null;
+        // Re-throw PROFILE_FETCH_FAILED and unexpected errors so processUser can set authError
+        throw err;
       }
     },
     [fetchProfile],
@@ -112,6 +112,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     async (authUser: User | null) => {
       if (!authUser) {
         setUser(null);
+        setAuthError(null);
         setIsLoading(false);
         return;
       }
@@ -122,52 +123,66 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         '| phone:', authUser.phone,
       );
 
+      setAuthError(null);
       let profile: UserProfile | null = null;
 
-      if (authUser.phone && !authUser.email) {
-        // Phone-auth user (tenant OTP login)
-        profile = await handlePhoneUser(authUser);
-      } else if (
-        authUser.email &&
-        !authUser.phone &&
-        authUser.email.endsWith('@tenant.adarshinfra.internal')
-      ) {
-        // Tenant using phone-derived internal email (signInWithPhone path)
-        // Profile was created by the Edge Function — fetch it directly.
-        // If missing (e.g. Edge Function profile write failed), fall back to
-        // linking via phone extracted from the internal email address.
-        profile = await fetchProfile(authUser);
-        if (!profile) {
-          // Extract 10-digit phone from "9876543210@tenant.adarshinfra.internal"
-          const phone = authUser.email.split('@')[0];
-          try {
-            await linkTenantAccountOnFirstLogin(authUser.id, phone);
-            profile = await fetchProfile(authUser);
-          } catch (err: unknown) {
-            const msg = err instanceof Error ? err.message : String(err);
-            if (msg === 'TENANT_NOT_REGISTERED') {
-              console.warn('[AuthContext] Internal-email tenant not registered. Signing out.');
-              await supabase.auth.signOut();
-            } else {
-              console.error('[AuthContext] linkTenantAccountOnFirstLogin (email path) error:', msg);
+      try {
+        if (authUser.phone && !authUser.email) {
+          // Phone-auth user (tenant OTP login)
+          profile = await handlePhoneUser(authUser);
+        } else if (
+          authUser.email &&
+          !authUser.phone &&
+          authUser.email.endsWith('@tenant.adarshinfra.internal')
+        ) {
+          // Tenant using phone-derived internal email (signInWithPhone path)
+          profile = await fetchProfile(authUser);
+          if (!profile) {
+            const phone = authUser.email.split('@')[0];
+            try {
+              await linkTenantAccountOnFirstLogin(authUser.id, phone);
+              profile = await fetchProfile(authUser);
+            } catch (err: unknown) {
+              const msg = err instanceof Error ? err.message : String(err);
+              if (msg === 'TENANT_NOT_REGISTERED') {
+                console.warn('[AuthContext] Internal-email tenant not registered. Signing out.');
+                await supabase.auth.signOut();
+              } else if (msg !== 'PROFILE_FETCH_FAILED') {
+                console.error('[AuthContext] linkTenantAccountOnFirstLogin (email path) error:', msg);
+              } else {
+                throw err; // propagate PROFILE_FETCH_FAILED to outer catch
+              }
+            }
+          }
+        } else {
+          // Email/password user — owner or tenant with a real email address.
+          profile = await fetchProfile(authUser);
+          if (!profile && authUser.user_metadata?.phone) {
+            const phone = String(authUser.user_metadata.phone);
+            try {
+              await linkTenantAccountOnFirstLogin(authUser.id, phone);
+              profile = await fetchProfile(authUser);
+            } catch (err: unknown) {
+              const msg = err instanceof Error ? err.message : String(err);
+              if (msg !== 'PROFILE_FETCH_FAILED') {
+                console.warn('[AuthContext] Profile missing for email user, link attempt result:', msg);
+              } else {
+                throw err;
+              }
             }
           }
         }
-      } else {
-        // Email/password user — owner or tenant with a real email address.
-        // Profile was created by the Edge Function on registration.
-        // If it's somehow missing, try linking via phone from user_metadata.
-        profile = await fetchProfile(authUser);
-        if (!profile && authUser.user_metadata?.phone) {
-          const phone = String(authUser.user_metadata.phone);
-          try {
-            await linkTenantAccountOnFirstLogin(authUser.id, phone);
-            profile = await fetchProfile(authUser);
-          } catch (err: unknown) {
-            const msg = err instanceof Error ? err.message : String(err);
-            console.warn('[AuthContext] Profile missing for email user, link attempt result:', msg);
-          }
+      } catch (err: unknown) {
+        const msg = err instanceof Error ? err.message : String(err);
+        if (msg === 'PROFILE_FETCH_FAILED') {
+          setAuthError('Could not load your account. Please check your connection and try again.');
+        } else {
+          console.error('[AuthContext] processUser unexpected error:', msg);
+          setAuthError('Something went wrong signing you in. Please try again.');
         }
+        setUser(null);
+        setIsLoading(false);
+        return;
       }
 
       if (profile) {
