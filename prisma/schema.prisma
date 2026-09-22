@@ -1,0 +1,369 @@
+// Rent Management System — Prisma Schema
+// Single-org for now, multi-org ready (organization_id on every table)
+// PostgreSQL 18
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Enums
+// ─────────────────────────────────────────────────────────────────────────────
+
+enum UserRole {
+  SUPER_ADMIN
+  OWNER
+  MANAGER
+  TENANT
+}
+
+enum UserStatus {
+  ACTIVE
+  INACTIVE
+  SUSPENDED
+}
+
+enum PropertyStatus {
+  ACTIVE
+  INACTIVE
+}
+
+enum UnitStatus {
+  AVAILABLE
+  OCCUPIED
+  MAINTENANCE
+  INACTIVE
+}
+
+enum TenantStatus {
+  ACTIVE
+  INACTIVE
+}
+
+enum RentStatus {
+  PENDING
+  PAID
+  OVERDUE
+  CANCELLED
+}
+
+enum PaymentMethod {
+  CASH
+  UPI
+  BANK_TRANSFER
+  CARD
+  OTHER
+}
+
+enum NotificationType {
+  RENT_REMINDER
+  RENT_OVERDUE
+  PAYMENT_CONFIRMATION
+  ELECTRICITY_BILL
+  GENERAL
+}
+
+enum Platform {
+  IOS
+  ANDROID
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Organization
+// ─────────────────────────────────────────────────────────────────────────────
+
+model Organization {
+  id        String   @id @default(cuid())
+  name      String
+  email     String   @unique
+  phone     String?
+  address   String?
+  city      String?
+  state     String?
+  status    PropertyStatus @default(ACTIVE)
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  // Relations
+  users         User[]
+  properties    Property[]
+  tenants       Tenant[]
+  notifications Notification[]
+
+  @@map("organizations")
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// User
+// ─────────────────────────────────────────────────────────────────────────────
+
+model User {
+  id             String     @id @default(cuid())
+  organizationId String     @map("organization_id")
+  name           String
+  email          String?    @unique
+  phone          String?    @unique
+  passwordHash   String?    @map("password_hash")
+  role           UserRole   @default(TENANT)
+  status         UserStatus @default(ACTIVE)
+  lastLoginAt    DateTime?  @map("last_login_at")
+  createdAt      DateTime   @default(now()) @map("created_at")
+  updatedAt      DateTime   @updatedAt @map("updated_at")
+
+  // Relations
+  organization   Organization   @relation(fields: [organizationId], references: [id])
+  tenant         Tenant?
+  refreshTokens  RefreshToken[]
+  deviceTokens   DeviceToken[]
+
+  @@index([organizationId])
+  @@index([email])
+  @@index([phone])
+  @@index([role])
+  @@index([status])
+  @@map("users")
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Refresh Token
+// ─────────────────────────────────────────────────────────────────────────────
+
+model RefreshToken {
+  id        String   @id @default(cuid())
+  userId    String   @map("user_id")
+  token     String   @unique
+  expiresAt DateTime @map("expires_at")
+  createdAt DateTime @default(now()) @map("created_at")
+
+  // Relations
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([token])
+  @@map("refresh_tokens")
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Property
+// ─────────────────────────────────────────────────────────────────────────────
+
+model Property {
+  id             String         @id @default(cuid())
+  organizationId String         @map("organization_id")
+  name           String
+  address        String?
+  city           String?
+  state          String?
+  postalCode     String?        @map("postal_code")
+  status         PropertyStatus @default(ACTIVE)
+  createdAt      DateTime       @default(now()) @map("created_at")
+  updatedAt      DateTime       @updatedAt @map("updated_at")
+
+  // Relations
+  organization Organization @relation(fields: [organizationId], references: [id])
+  units        Unit[]
+
+  @@index([organizationId])
+  @@index([status])
+  @@map("properties")
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Unit / Room
+// ─────────────────────────────────────────────────────────────────────────────
+
+model Unit {
+  id          String     @id @default(cuid())
+  propertyId  String     @map("property_id")
+  unitNumber  String     @map("unit_number")
+  monthlyRent Decimal?   @map("monthly_rent") @db.Decimal(10, 2)
+  rentDueDay  Int?       @map("rent_due_day")
+  status      UnitStatus @default(AVAILABLE)
+  createdAt   DateTime   @default(now()) @map("created_at")
+  updatedAt   DateTime   @updatedAt @map("updated_at")
+
+  // Relations
+  property Property @relation(fields: [propertyId], references: [id])
+  tenants  Tenant[]
+
+  @@index([propertyId])
+  @@index([status])
+  @@map("units")
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Tenant
+// ─────────────────────────────────────────────────────────────────────────────
+
+model Tenant {
+  id             String       @id @default(cuid())
+  organizationId String       @map("organization_id")
+  userId         String?      @unique @map("user_id")
+  unitId         String?      @map("unit_id")
+  name           String
+  phone          String       @unique
+  email          String?
+  joiningDate    DateTime?    @map("joining_date")
+  rentAmount     Decimal?     @map("rent_amount") @db.Decimal(10, 2)
+  dueDay         Int?         @map("due_day")
+  status         TenantStatus @default(ACTIVE)
+  createdAt      DateTime     @default(now()) @map("created_at")
+  updatedAt      DateTime     @updatedAt @map("updated_at")
+
+  // Relations
+  organization   Organization   @relation(fields: [organizationId], references: [id])
+  user           User?          @relation(fields: [userId], references: [id])
+  unit           Unit?          @relation(fields: [unitId], references: [id])
+  rentRecords    RentRecord[]
+  payments       Payment[]
+  meterReadings  MeterReading[]
+  notifications  Notification[]
+
+  @@index([organizationId])
+  @@index([userId])
+  @@index([unitId])
+  @@index([phone])
+  @@index([status])
+  @@map("tenants")
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Rent Record
+// ─────────────────────────────────────────────────────────────────────────────
+
+model RentRecord {
+  id        String     @id @default(cuid())
+  tenantId  String     @map("tenant_id")
+  month     String     // YYYY-MM
+  amount    Decimal    @db.Decimal(10, 2)
+  dueDate   DateTime   @map("due_date")
+  paidDate  DateTime?  @map("paid_date")
+  status    RentStatus @default(PENDING)
+  createdAt DateTime   @default(now()) @map("created_at")
+  updatedAt DateTime   @updatedAt @map("updated_at")
+
+  // Relations
+  tenant   Tenant    @relation(fields: [tenantId], references: [id])
+  payments Payment[]
+
+  @@unique([tenantId, month])
+  @@index([tenantId])
+  @@index([status])
+  @@index([dueDate])
+  @@index([month])
+  @@map("rent_records")
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Payment
+// ─────────────────────────────────────────────────────────────────────────────
+
+model Payment {
+  id              String        @id @default(cuid())
+  tenantId        String        @map("tenant_id")
+  rentRecordId    String        @map("rent_record_id")
+  amount          Decimal       @db.Decimal(10, 2)
+  paymentDate     DateTime      @map("payment_date")
+  paymentMethod   PaymentMethod @default(CASH) @map("payment_method")
+  referenceNumber String?       @map("reference_number")
+  notes           String?
+  createdAt       DateTime      @default(now()) @map("created_at")
+
+  // Relations
+  tenant     Tenant     @relation(fields: [tenantId], references: [id])
+  rentRecord RentRecord @relation(fields: [rentRecordId], references: [id])
+
+  @@index([tenantId])
+  @@index([rentRecordId])
+  @@index([paymentDate])
+  @@map("payments")
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Meter Reading (Electricity)
+// ─────────────────────────────────────────────────────────────────────────────
+
+model MeterReading {
+  id              String   @id @default(cuid())
+  tenantId        String   @map("tenant_id")
+  month           String   // YYYY-MM
+  previousReading Decimal  @map("previous_reading") @db.Decimal(10, 2)
+  currentReading  Decimal  @map("current_reading") @db.Decimal(10, 2)
+  unitsConsumed   Decimal  @map("units_consumed") @db.Decimal(10, 2)
+  rate            Decimal  @db.Decimal(10, 2)
+  amount          Decimal  @db.Decimal(10, 2)
+  readingDate     DateTime @map("reading_date")
+  createdAt       DateTime @default(now()) @map("created_at")
+  updatedAt       DateTime @updatedAt @map("updated_at")
+
+  // Relations
+  tenant Tenant @relation(fields: [tenantId], references: [id])
+
+  @@unique([tenantId, month])
+  @@index([tenantId])
+  @@index([month])
+  @@map("meter_readings")
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Electricity Settings (org-level rate)
+// ─────────────────────────────────────────────────────────────────────────────
+
+model ElectricitySetting {
+  id          String   @id @default(cuid())
+  ratePerUnit Decimal  @map("rate_per_unit") @db.Decimal(10, 2)
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  @@map("electricity_settings")
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Notification
+// ─────────────────────────────────────────────────────────────────────────────
+
+model Notification {
+  id             String           @id @default(cuid())
+  organizationId String           @map("organization_id")
+  tenantId       String?          @map("tenant_id")
+  title          String
+  message        String
+  type           NotificationType @default(GENERAL)
+  isRead         Boolean          @default(false) @map("is_read")
+  createdAt      DateTime         @default(now()) @map("created_at")
+
+  // Relations
+  organization Organization @relation(fields: [organizationId], references: [id])
+  tenant       Tenant?      @relation(fields: [tenantId], references: [id])
+
+  @@index([organizationId])
+  @@index([tenantId])
+  @@index([isRead])
+  @@index([createdAt])
+  @@map("notifications")
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Device Token (FCM)
+// ─────────────────────────────────────────────────────────────────────────────
+
+model DeviceToken {
+  id           String   @id @default(cuid())
+  userId       String   @map("user_id")
+  token        String   @unique
+  platform     Platform
+  appVersion   String?  @map("app_version")
+  createdAt    DateTime @default(now()) @map("created_at")
+  lastActiveAt DateTime @default(now()) @map("last_active_at")
+
+  // Relations
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@map("device_tokens")
+}
