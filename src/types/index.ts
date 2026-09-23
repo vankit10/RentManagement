@@ -153,7 +153,7 @@ export interface SmsFailureLog {
 // ─────────────────────────────────────────────────────────────────────────────
 
 export interface AuthUser {
-  id: string;          // Supabase auth user UUID
+  id: string;          // Node.js API user ID (cuid)
   email: string | null;
   phone: string | null;
   profile: UserProfile | null;
@@ -168,6 +168,8 @@ export interface AuthContextType {
   authError: string | null;
   logout: () => Promise<void>;
   updateProfile: (changes: Pick<UserProfile, 'name' | 'email' | 'phone'>) => Promise<void>;
+  /** Called by login screens after signIn() to update context state. */
+  setAuthUser: (user: AuthUser | null) => void;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

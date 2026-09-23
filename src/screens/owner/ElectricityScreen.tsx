@@ -19,6 +19,7 @@ import { getAllMeterReadings } from '../../services/electricityService';
 import { getAllTenants } from '../../services/tenantService';
 import { formatCurrency, formatDate } from '../../utils/helpers';
 import { getSupabaseErrorMessage } from '../../utils/supabaseErrors';
+import { logButtonPress } from '../../utils/logger';
 import type { MeterReading, OwnerStackParamList, Tenant } from '../../types';
 
 type NavProp = NativeStackNavigationProp<OwnerStackParamList>;
@@ -144,7 +145,11 @@ export default function OwnerElectricityScreen() {
           <Text style={styles.errorMessage}>{loadError}</Text>
           <TouchableOpacity
             style={styles.errorRetryBtn}
-            onPress={() => { setIsLoading(true); loadData(); }}
+            onPress={() => {
+              logButtonPress('OwnerElectricityScreen', 'retry_load_meter_readings');
+              setIsLoading(true);
+              loadData();
+            }}
             accessibilityLabel="Retry loading meter readings"
           >
             <Text style={styles.errorRetryBtnText}>Try Again</Text>
@@ -161,7 +166,10 @@ export default function OwnerElectricityScreen() {
                 record={item}
                 tenantName={tenant?.name ?? 'Unknown'}
                 roomNumber={tenant?.room_number ?? '—'}
-                onPress={() => navigation.navigate('TenantDetail', { tenantId: item.tenant_id })}
+                onPress={() => {
+                  logButtonPress('OwnerElectricityScreen', 'open_tenant_detail', { tenantId: item.tenant_id });
+                  navigation.navigate('TenantDetail', { tenantId: item.tenant_id });
+                }}
               />
             );
           }}

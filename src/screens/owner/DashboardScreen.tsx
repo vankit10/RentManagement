@@ -18,6 +18,7 @@ import { useAuth } from '../../context/AuthContext';
 import { getDashboardStats } from '../../services/tenantService';
 import { formatCurrency, formatDate, formatMonth } from '../../utils/helpers';
 import { getSupabaseErrorMessage } from '../../utils/supabaseErrors';
+import { logButtonPress } from '../../utils/logger';
 import type { DashboardStats } from '../../services/tenantService';
 
 // ─── Stat card ────────────────────────────────────────────────────────────────
@@ -142,12 +143,16 @@ export default function OwnerDashboardScreen() {
   }, [loadStats]);
 
   const handleLogout = () => {
+    logButtonPress('OwnerDashboardScreen', 'logout_click');
     Alert.alert(
       'Sign Out',
       'Are you sure you want to sign out?',
       [
         { text: 'Cancel', style: 'cancel' },
-        { text: 'Sign Out', style: 'destructive', onPress: logout },
+        { text: 'Sign Out', style: 'destructive', onPress: async () => {
+          logButtonPress('OwnerDashboardScreen', 'logout_confirmed');
+          await logout();
+        } },
       ],
       { cancelable: true },
     );
@@ -195,7 +200,11 @@ export default function OwnerDashboardScreen() {
                 <Icon name="alert-circle-outline" size={18} color={Colors.error} />
                 <Text style={styles.errorBannerText}>{loadError}</Text>
                 <TouchableOpacity
-                  onPress={() => { setIsLoading(true); loadStats(); }}
+                  onPress={() => {
+                    logButtonPress('OwnerDashboardScreen', 'retry_load_dashboard');
+                    setIsLoading(true);
+                    loadStats();
+                  }}
                   accessibilityLabel="Retry loading dashboard"
                 >
                   <Text style={styles.errorRetry}>Retry</Text>

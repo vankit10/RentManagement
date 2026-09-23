@@ -1,16 +1,7 @@
 /**
- * Notification Service
- *
- * Notification records are stored in Supabase (notifications table).
- * Push delivery is done via Firebase Cloud Messaging (FCM) — the only
- * remaining Firebase service in the app.
- *
- * Architecture:
- *   Owner writes notification → Supabase notifications table
- *   Supabase DB webhook / Edge Function triggers FCM HTTP v1 API
- *   FCM delivers push to tenant device
- *
- * FCM device tokens are stored in device_tokens table (Supabase).
+ * Notification Service — Node.js REST API
+ * All Supabase calls replaced with Node.js API calls via apiClient.
+ * FCM token registration still uses Firebase (device-side only).
  */
 import {
   getMessaging,
@@ -20,17 +11,18 @@ import {
   AuthorizationStatus,
 } from '@react-native-firebase/messaging';
 import type { RemoteMessage } from '@react-native-firebase/messaging';
-import { supabase } from './supabase';
+import api from './apiClient';
 import type { AppNotification, NotificationType } from '../types';
 
-// ─────────────────────────────────────────────────────────────────────────────
-// FCM token (push notifications — Firebase Messaging only)
-// ─────────────────────────────────────────────────────────────────────────────
+// ─── Helpers ──────────────────────────────────────────────────────────────────
 
-/**
- * Request FCM permission and return the device token.
- * Returns null if permission is denied.
- */
+interface Paginated<T> {
+  data: T[];
+  pagination: { page: number; limit: number; total: number; totalPages: number };
+}
+
+// ─── FCM token ────────────────────────────────────────────────────────────────
+
 export async function requestFCMPermissionAndGetToken(): Promise<string | null> {
   try {
     const messaging = getMessaging();
@@ -47,27 +39,19 @@ export async function requestFCMPermissionAndGetToken(): Promise<string | null> 
 }
 
 /**
- * Save the FCM device token to the device_tokens table in Supabase.
- * Uses upsert so re-logins on the same device just update the row.
+ * Save FCM token to Node.js backend (POST /devices/token).
  */
 export async function saveFCMToken(userId: string, token: string): Promise<void> {
-  const { error } = await supabase.from('device_tokens').upsert(
-    {
-      user_id: userId,
+  try {
+    await api.post('/devices/token', {
       token,
-      updated_at: new Date().toISOString(),
-    },
-    { onConflict: 'user_id' },
-  );
-  if (error) {
-    console.warn('[notificationService] saveFCMToken error:', error.message);
+      platform: 'ANDROID', // runtime detection can be added later
+    });
+  } catch (err) {
+    console.warn('[notificationService] saveFCMToken error:', err);
   }
 }
 
-/**
- * Listen for foreground FCM messages.
- * Returns an unsubscribe function (mirrors the old Firestore API).
- */
 export function onForegroundMessage(
   callback: (message: RemoteMessage) => void,
 ): () => void {
@@ -75,9 +59,7 @@ export function onForegroundMessage(
   return onMessage(messaging, callback);
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// Send notification (owner → tenant)
-// ─────────────────────────────────────────────────────────────────────────────
+// ─── Send notification (owner) ────────────────────────────────────────────────
 
 export interface SendNotificationParams {
   tenantId: string;
@@ -86,69 +68,77 @@ export interface SendNotificationParams {
   type: NotificationType;
 }
 
-/**
- * Write an in-app notification to the Supabase notifications table.
- * The push delivery is triggered server-side (Edge Function or DB webhook)
- * when this row is inserted.
- */
-export async function sendNotification(
-  params: SendNotificationParams,
-): Promise<string> {
-  const { tenantId, title, message, type } = params;
-
-  const { data, error } = await supabase
-    .from('notifications')
-    .insert({
-      tenant_id: tenantId,
-      title,
-      message,
-      type,
-      is_read: false,
-    })
-    .select('id')
-    .single();
-
-  if (error) { throw error; }
-  return (data as { id: string }).id;
+export async function sendNotification(params: SendNotificationParams): Promise<string> {
+  const notif = await api.post<{ id: string }>('/notifications', {
+    tenantId: params.tenantId,
+    title: params.title,
+    message: params.message,
+    type: mapType(params.type),
+  });
+  return notif.id;
 }
 
-/**
- * Send the same notification to multiple tenants at once.
- */
 export async function broadcastNotification(
   title: string,
   message: string,
   type: NotificationType,
-  tenantIds: string[],
+  _tenantIds: string[],
 ): Promise<void> {
-  await Promise.all(
-    tenantIds.map(tenantId =>
-      sendNotification({ tenantId, title, message, type }),
-    ),
-  );
+  await api.post('/notifications/broadcast', {
+    title,
+    message,
+    type: mapType(type),
+  });
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// Read (owner view)
-// ─────────────────────────────────────────────────────────────────────────────
+// ─── Read notifications ───────────────────────────────────────────────────────
 
 export async function getAllNotifications(): Promise<AppNotification[]> {
-  const { data, error } = await supabase
-    .from('notifications')
-    .select('*')
-    .order('created_at', { ascending: false });
-  if (error) { throw error; }
-  return (data ?? []) as AppNotification[];
+  const res = await api.get<Paginated<AppNotification>>('/notifications?limit=100');
+  return (res.data ?? []).map(mapNotification);
 }
 
 export async function getNotificationsForTenant(
-  tenantId: string,
+  _tenantId: string,
 ): Promise<AppNotification[]> {
-  const { data, error } = await supabase
-    .from('notifications')
-    .select('*')
-    .eq('tenant_id', tenantId)
-    .order('created_at', { ascending: false });
-  if (error) { throw error; }
-  return (data ?? []) as AppNotification[];
+  const res = await api.get<Paginated<AppNotification>>('/notifications/my?limit=100');
+  return (res.data ?? []).map(mapNotification);
+}
+
+// ─── Map helpers ──────────────────────────────────────────────────────────────
+
+// Map old Supabase type strings to new API enum values
+function mapType(type: NotificationType): string {
+  const map: Record<NotificationType, string> = {
+    rent_reminder: 'RENT_REMINDER',
+    overdue_alert: 'RENT_OVERDUE',
+    electricity_bill: 'ELECTRICITY_BILL',
+    payment_confirmation: 'PAYMENT_CONFIRMATION',
+    general: 'GENERAL',
+  };
+  return map[type] ?? 'GENERAL';
+}
+
+// Map API camelCase response to local snake_case type
+function mapNotification(n: AppNotification & Record<string, unknown>): AppNotification {
+  return {
+    id: n.id,
+    tenant_id: (n.tenantId as string) ?? n.tenant_id,
+    title: n.title,
+    message: n.message,
+    type: reverseMapType((n.type as string) ?? ''),
+    is_read: (n.isRead as boolean) ?? n.is_read,
+    created_at: (n.createdAt as string) ?? n.created_at,
+  };
+}
+
+function reverseMapType(type: string): NotificationType {
+  const map: Record<string, NotificationType> = {
+    RENT_REMINDER: 'rent_reminder',
+    RENT_OVERDUE: 'overdue_alert',
+    ELECTRICITY_BILL: 'electricity_bill',
+    PAYMENT_CONFIRMATION: 'payment_confirmation',
+    GENERAL: 'general',
+  };
+  return map[type] ?? 'general';
 }

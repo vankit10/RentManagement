@@ -1,201 +1,200 @@
 /**
- * Auth Service — Supabase Auth
+ * Auth Service — Node.js REST API
  *
- * Supports two login modes for tenants:
- *   1. OTP login  — phone number → receive SMS OTP → verify → signed in
- *   2. Password login — phone number + password (email is derived from phone)
+ * Replaces all Supabase Auth calls with calls to the Node.js backend.
  *
- * Owner always logs in with email + password.
+ * Login methods:
+ *   - Owner        : email + password → POST /auth/login
+ *   - Tenant       : phone + password → POST /auth/login (phone used as identifier)
  *
- * Session persistence is handled by the Supabase client (AsyncStorage).
- * onAuthStateChange in AuthContext restores the session on every app launch.
- *
- * NOTE on OTP flow vs Firebase:
- *   Supabase Phone OTP does NOT return a ConfirmationResult object.
- *   The phone number passed to requestOtp() is all that's needed to verify.
- *   Store it in module scope so OTPVerifyScreen can call verifyOtp(phone, token)
- *   without needing to pass anything through navigation params (same pattern
- *   as before, but simpler — just a string, not an opaque object).
+ * Session persistence:
+ *   Tokens are stored in AsyncStorage via tokenStorage.ts.
+ *   On app launch AuthContext calls restoreSession() to reload the user.
  */
-import { supabase } from './supabase';
+import api from './apiClient';
+import { saveTokens, clearTokens, saveUser, getStoredUser, getRefreshToken } from './tokenStorage';
+import type { AuthUser } from '../types';
 
-// ─────────────────────────────────────────────────────────────────────────────
-// Module-level pending phone
-// Stored here so OTPVerifyScreen can call verifyOtp() with just the token.
-// ─────────────────────────────────────────────────────────────────────────────
+// ─── API response shapes ──────────────────────────────────────────────────────
 
-let _pendingPhone: string | null = null;
-
-export function getPendingPhone(): string | null {
-  return _pendingPhone;
+interface LoginResponse {
+  accessToken: string;
+  refreshToken: string;
+  user: {
+    id: string;
+    name: string;
+    email: string | null;
+    phone: string | null;
+    role: string;
+    organizationId: string;
+  };
 }
 
-export function clearPendingPhone(): void {
-  _pendingPhone = null;
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
-// OTP Login — Step 1: Request OTP
-// ─────────────────────────────────────────────────────────────────────────────
-
-/**
- * Send a Supabase Phone OTP to the given number.
- * Supabase uses Twilio under the hood (configured in Supabase Dashboard →
- * Authentication → Providers → Phone).
- *
- * @param phone  10-digit Indian number or E.164 format
- */
-export async function requestOtp(phone: string): Promise<void> {
-  // Normalise to E.164
-  const e164 = phone.startsWith('+') ? phone : `+91${phone.trim()}`;
-  const { error } = await supabase.auth.signInWithOtp({ phone: e164 });
-  if (error) { throw error; }
-  _pendingPhone = e164;
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
-// OTP Login — Step 2: Verify OTP
-// ─────────────────────────────────────────────────────────────────────────────
-
-/**
- * Verify the OTP the user entered.
- * On success, Supabase signs the user in and onAuthStateChange fires.
- * AuthContext fetches the profile and routes to the correct dashboard.
- *
- * @param token  6-digit OTP
- * @throws if OTP is wrong, expired, or no pending phone session
- */
-export async function verifyOtp(token: string): Promise<void> {
-  const phone = _pendingPhone;
-  if (!phone) {
-    throw new Error('No pending OTP session. Please request a new OTP.');
+export function normalizeAuthResponse(payload: unknown): LoginResponse {
+  if (!payload || typeof payload !== 'object') {
+    throw new Error('Invalid login response from server.');
   }
-  const { error } = await supabase.auth.verifyOtp({
-    phone,
-    token,
-    type: 'sms',
-  });
-  if (error) { throw error; }
-  _pendingPhone = null;
+
+  const record = payload as Record<string, unknown>;
+
+  // apiClient already unwraps { success: true, data: {...} } → {...}
+  // So we check the direct structure first
+  if (
+    typeof record.accessToken === 'string' && 
+    typeof record.refreshToken === 'string' && 
+    record.user && 
+    typeof record.user === 'object'
+  ) {
+    return record as unknown as LoginResponse;
+  }
+
+  // Fallback: check if it's still wrapped (shouldn't happen with apiClient)
+  if (record.success === true && record.data && typeof record.data === 'object') {
+    const wrapped = record.data as Record<string, unknown>;
+    if (
+      typeof wrapped.accessToken === 'string' && 
+      typeof wrapped.refreshToken === 'string' && 
+      wrapped.user &&
+      typeof wrapped.user === 'object'
+    ) {
+      return wrapped as unknown as LoginResponse;
+    }
+  }
+
+  throw new Error('Invalid login response from server.');
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// Password Login (tenant)
-// ─────────────────────────────────────────────────────────────────────────────
+// ─── Login ────────────────────────────────────────────────────────────────────
 
 /**
- * Derive a deterministic email from a phone number for Supabase
- * email+password auth.  Format: <10digits>@tenant.adarshinfra.internal
- *
- * This is not a real email — it is only used as the Supabase auth identifier
- * for tenants who choose to set a password. It is never displayed or emailed.
+ * Email + password login — used by owner and tenants with email credentials.
  */
-export function phoneToEmail(phone: string): string {
-  const digits = phone.replace(/^\+91/, '').replace(/\D/g, '').slice(0, 10);
-  return `${digits}@tenant.adarshinfra.internal`;
+export async function signIn(email: string, password: string): Promise<AuthUser> {
+  try {
+    const rawResponse = await api.post<unknown>('/auth/login', { email, password });
+    console.log('[authService] Raw API response:', JSON.stringify(rawResponse, null, 2));
+    
+    const response = normalizeAuthResponse(rawResponse);
+    console.log('[authService] Normalized response:', JSON.stringify(response, null, 2));
+
+    await saveTokens(response.accessToken, response.refreshToken);
+
+    const authUser: AuthUser = {
+      id: response.user.id,
+      email: response.user.email,
+      phone: response.user.phone,
+      profile: {
+        id: response.user.id,
+        name: response.user.name,
+        email: response.user.email ?? undefined,
+        phone: response.user.phone ?? '',
+        role: response.user.role === 'OWNER' || response.user.role === 'owner' ? 'owner' : 'tenant',
+        created_at: new Date().toISOString(),
+      },
+    };
+
+    await saveUser(authUser);
+    return authUser;
+  } catch (error) {
+    console.error('[authService] signIn error:', error);
+    throw error;
+  }
 }
 
 /**
- * Sign in a tenant using their phone-derived email + password.
+ * Phone + password login — for tenants who log in with their mobile number.
+ * The backend accepts phone as the identifier directly.
  */
-export async function signInWithPhone(
-  phone: string,
-  password: string,
-): Promise<void> {
-  const email = phoneToEmail(phone.trim());
-  const { error } = await supabase.auth.signInWithPassword({ email, password });
-  if (error) { throw error; }
+export async function signInWithPhone(phone: string, password: string): Promise<AuthUser> {
+  // Backend accepts phone number directly as identifier
+  const digits = phone.replace(/\D/g, '').slice(-10);
+  // Try phone as email format that backend understands
+  return signIn(`${digits}@tenant.adarshinfra.internal`, password);
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// Owner / email login
-// ─────────────────────────────────────────────────────────────────────────────
-
-/**
- * Sign in with email + password.
- * Used directly by the owner.
- */
-export async function signIn(email: string, password: string): Promise<void> {
-  const { error } = await supabase.auth.signInWithPassword({ email, password });
-  if (error) { throw error; }
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
-// Logout
-// ─────────────────────────────────────────────────────────────────────────────
+// ─── Logout ───────────────────────────────────────────────────────────────────
 
 export async function logout(): Promise<void> {
-  clearPendingPhone();
-  const { error } = await supabase.auth.signOut();
-  if (error) { throw error; }
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
-// Tenant self-registration
-// ─────────────────────────────────────────────────────────────────────────────
-
-export interface RegisterParams {
-  name: string;
-  email: string;
-  phone: string;
-  password: string;
-  role: 'tenant' | 'owner';
-}
-
-/**
- * Register a user account via Supabase email+password sign-up.
- *
- * Note: the owner must have already registered the tenant's phone number.
- * AuthContext will call linkTenantAccountOnFirstLogin() after sign-up when
- * the profile row doesn't exist yet — the same path as OTP first-login.
- *
- * On success, Supabase signs the user in automatically and onAuthStateChange
- * fires in AuthContext, which routes to TenantApp or OwnerApp based on role.
- */
-export async function registerUser(params: RegisterParams): Promise<void> {
-  const { name, email, phone, password, role } = params;
-
-  const { data, error } = await supabase.auth.signUp({
-    email: email.trim().toLowerCase(),
-    password,
-    options: {
-      data: { name, phone, role },
-    },
-  });
-
-  if (error) { throw error; }
-
-  // If Supabase requires email confirmation the user won't be signed in yet.
-  // The profile row is created by AuthContext after sign-in, so nothing more
-  // is needed here.
-  if (data.user && !data.session) {
-    throw new Error('Please check your email to confirm your account before logging in.');
+  try {
+    const refreshToken = await getRefreshToken();
+    if (refreshToken) {
+      await api.post('/auth/logout', { refreshToken });
+    }
+  } catch {
+    // Ignore — clear local tokens regardless
+  } finally {
+    await clearTokens();
   }
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// Password reset
-// ─────────────────────────────────────────────────────────────────────────────
+// ─── Session restore ──────────────────────────────────────────────────────────
 
 /**
- * Send a password-reset email to the owner.
- * Not used for tenants (they use OTP).
+ * Called by AuthContext on app launch.
+ * Returns the stored user if a valid session exists, null otherwise.
  */
-export async function sendPasswordReset(email: string): Promise<void> {
-  const { error } = await supabase.auth.resetPasswordForEmail(email);
-  if (error) { throw error; }
+export async function restoreSession(): Promise<AuthUser | null> {
+  try {
+    // Try fetching /auth/me — apiClient auto-refreshes token if needed
+    const data = await api.get<{
+      id: string;
+      name: string;
+      email: string | null;
+      phone: string | null;
+      role: string;
+      organizationId: string;
+    }>('/auth/me');
+
+    const authUser: AuthUser = {
+      id: data.id,
+      email: data.email,
+      phone: data.phone,
+      profile: {
+        id: data.id,
+        name: data.name,
+        email: data.email ?? undefined,
+        phone: data.phone ?? '',
+        role: data.role === 'OWNER' ? 'owner' : 'tenant',
+        created_at: new Date().toISOString(),
+      },
+    };
+
+    await saveUser(authUser);
+    return authUser;
+  } catch {
+    // Token invalid or expired and refresh failed — clear storage
+    await clearTokens();
+    return null;
+  }
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// Session
-// ─────────────────────────────────────────────────────────────────────────────
+// ─── Change password ──────────────────────────────────────────────────────────
 
-/**
- * Get the current Supabase session (non-reactive).
- * Prefer using AuthContext for reactive state.
- */
-export async function getSession() {
-  const { data, error } = await supabase.auth.getSession();
-  if (error) { throw error; }
-  return data.session;
+export async function changePassword(
+  currentPassword: string,
+  newPassword: string,
+): Promise<void> {
+  await api.patch('/auth/change-password', { currentPassword, newPassword });
+}
+
+// ─── Forgot password (owner only) ────────────────────────────────────────────
+
+export async function sendPasswordReset(_email: string): Promise<void> {
+  // Not yet implemented in the Node.js backend — placeholder
+  throw new Error('Password reset is not yet available. Please contact the administrator.');
+}
+
+// ─── Kept for compatibility with OTPVerifyScreen ──────────────────────────────
+// OTP login is not yet supported in the Node.js backend (SMS excluded).
+// These stubs throw a clear message so the UI shows a useful error.
+
+export function getPendingPhone(): string | null { return null; }
+export function clearPendingPhone(): void { /* no-op */ }
+
+export async function requestOtp(_phone: string): Promise<void> {
+  throw new Error('OTP login is not yet available. Please use password login.');
+}
+
+export async function verifyOtp(_token: string): Promise<void> {
+  throw new Error('OTP login is not yet available. Please use password login.');
 }

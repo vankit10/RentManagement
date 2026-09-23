@@ -9,6 +9,7 @@ import {
 } from 'react-native';
 import Icon from 'react-native-vector-icons/MaterialCommunityIcons';
 import { Colors, FontSize, FontWeight, Spacing, Radius } from '../constants';
+import { logButtonPress } from '../utils/logger';
 
 interface AuthInputProps extends TextInputProps {
   label: string;
@@ -49,7 +50,10 @@ export default function AuthInput({
         {isPassword && (
           <TouchableOpacity
             style={styles.eyeBtn}
-            onPress={() => setIsSecure(prev => !prev)}
+            onPress={() => {
+              logButtonPress('AuthInput', isSecure ? 'show_password' : 'hide_password', { label });
+              setIsSecure(prev => !prev);
+            }}
             accessibilityLabel={isSecure ? 'Show password' : 'Hide password'}
             hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
           >

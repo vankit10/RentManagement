@@ -19,6 +19,7 @@ import AuthInput from '../../components/AuthInput';
 import { registerUser } from '../../services/authService';
 import { isValidEmail, isValidPhone } from '../../utils/helpers';
 import { getFirebaseErrorMessage } from '../../utils/firebaseErrors';
+import { logButtonPress } from '../../utils/logger';
 import type { AuthStackParamList } from '../../types';
 
 type Props = NativeStackScreenProps<AuthStackParamList, 'Register'>;
@@ -87,6 +88,7 @@ export default function RegisterScreen({ navigation }: Props) {
 
   // ── Submit ──────────────────────────────────────────────────────────────────
   async function handleRegister() {
+    logButtonPress('RegisterScreen', 'register_submit', { role, email: email.trim().toLowerCase() });
     if (!validate()) { return; }
     setIsLoading(true);
     try {
@@ -131,7 +133,10 @@ export default function RegisterScreen({ navigation }: Props) {
           {/* ── Header ──────────────────────────────────── */}
           <View style={styles.header}>
             <TouchableOpacity
-              onPress={() => navigation.goBack()}
+              onPress={() => {
+                logButtonPress('RegisterScreen', 'go_back');
+                navigation.goBack();
+              }}
               style={styles.backBtn}
               accessibilityLabel="Go back"
               hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
@@ -164,7 +169,10 @@ export default function RegisterScreen({ navigation }: Props) {
                   paddingHorizontal: Spacing.md,
                   height: 48,
                 }}
-                onPress={() => setShowDropdown(!showDropdown)}
+                onPress={() => {
+                  logButtonPress('RegisterScreen', 'toggle_role_dropdown', { isOpen: !showDropdown });
+                  setShowDropdown(!showDropdown);
+                }}
               >
                 <Text style={{ color: Colors.textPrimary, fontSize: FontSize.base, textTransform: 'capitalize' }}>
                   {role}
@@ -191,13 +199,21 @@ export default function RegisterScreen({ navigation }: Props) {
                 }}>
                   <TouchableOpacity
                     style={{ padding: Spacing.md, borderBottomWidth: 1, borderBottomColor: Colors.border }}
-                    onPress={() => { setRole('tenant'); setShowDropdown(false); }}
+                    onPress={() => {
+                      logButtonPress('RegisterScreen', 'select_role', { role: 'tenant' });
+                      setRole('tenant');
+                      setShowDropdown(false);
+                    }}
                   >
                     <Text style={{ fontSize: FontSize.base, color: role === 'tenant' ? Colors.primary : Colors.textPrimary }}>Tenant</Text>
                   </TouchableOpacity>
                   <TouchableOpacity
                     style={{ padding: Spacing.md }}
-                    onPress={() => { setRole('owner'); setShowDropdown(false); }}
+                    onPress={() => {
+                      logButtonPress('RegisterScreen', 'select_role', { role: 'owner' });
+                      setRole('owner');
+                      setShowDropdown(false);
+                    }}
                   >
                     <Text style={{ fontSize: FontSize.base, color: role === 'owner' ? Colors.primary : Colors.textPrimary }}>Owner</Text>
                   </TouchableOpacity>

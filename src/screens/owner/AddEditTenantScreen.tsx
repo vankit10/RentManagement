@@ -36,6 +36,7 @@ import {
 } from '../../services/tenantService';
 import { isValidPhone, isValidEmail } from '../../utils/helpers';
 import { getFirebaseErrorMessage } from '../../utils/firebaseErrors';
+import { logButtonPress } from '../../utils/logger';
 import type { OwnerStackParamList, Tenant } from '../../types';
 
 type Props = NativeStackScreenProps<OwnerStackParamList, 'AddEditTenant'>;
@@ -197,6 +198,11 @@ export default function AddEditTenantScreen({ route, navigation }: Props) {
 
   // ── Submit ────────────────────────────────────────────────────────────────
   const handleSave = useCallback(async () => {
+    logButtonPress('AddEditTenantScreen', isEdit ? 'update_tenant' : 'create_tenant', {
+      tenantId,
+      isEdit,
+      name: form.name.trim(),
+    });
     if (!validate()) { return; }
     setIsSaving(true);
     try {
@@ -318,7 +324,10 @@ export default function AddEditTenantScreen({ route, navigation }: Props) {
           {isEdit ? 'Edit Tenant' : 'Add Tenant'}
         </Text>
         <TouchableOpacity
-          onPress={handleSave}
+          onPress={() => {
+            logButtonPress('AddEditTenantScreen', 'save_tenant_header');
+            handleSave();
+          }}
           disabled={isSaving}
           style={styles.saveBtn}
           accessibilityLabel="Save"
@@ -485,7 +494,10 @@ export default function AddEditTenantScreen({ route, navigation }: Props) {
           {/* ── Save button ───────────────────────────── */}
           <TouchableOpacity
             style={[styles.saveFullBtn, isSaving && styles.btnDisabled]}
-            onPress={handleSave}
+            onPress={() => {
+              logButtonPress('AddEditTenantScreen', 'save_tenant_form');
+              handleSave();
+            }}
             disabled={isSaving}
             accessibilityLabel={isEdit ? 'Update tenant' : 'Register tenant'}
             accessibilityRole="button"

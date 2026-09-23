@@ -2,6 +2,7 @@
  * Supabase / PostgREST error mapper.
  *
  * Converts raw Supabase database and API errors into user-friendly strings.
+ * Also handles ApiError from Node.js backend.
  *
  * Error shape from Supabase JS client:
  *   { message: string, code?: string, details?: string, hint?: string }
@@ -21,6 +22,8 @@
  * regardless of whether the error is DB-level or network-level.
  */
 
+import { ApiError } from '../services/apiClient';
+
 interface SupabaseErrorLike {
   message?: string;
   code?: string;
@@ -29,9 +32,9 @@ interface SupabaseErrorLike {
 }
 
 /**
- * Extract a user-friendly message from any Supabase error.
+ * Extract a user-friendly message from any Supabase error or ApiError.
  *
- * @param error     The thrown value — can be a Supabase error object, a
+ * @param error     The thrown value — can be a Supabase error object, ApiError,
  *                  plain Error, a string, or anything else.
  * @param context   Optional description of the operation, e.g. "loading
  *                  tenants". Included in the generic fallback message.
@@ -41,6 +44,13 @@ export function getSupabaseErrorMessage(error: unknown, context?: string): strin
     return context
       ? `Something went wrong while ${context}. Please try again.`
       : 'Something went wrong. Please try again.';
+  }
+
+  // ── Handle ApiError from Node.js backend ──────────────────────────────────
+  if (error instanceof ApiError) {
+    return error.message || (context
+      ? `Could not complete: ${context}. Please try again.`
+      : 'Something went wrong. Please try again.');
   }
 
   const err = error as SupabaseErrorLike;

@@ -1,22 +1,18 @@
 /**
- * Electricity Service — Supabase PostgreSQL
- *
- * Meter readings are stored month-wise (one record per tenant per month).
- * A UNIQUE(tenant_id, month) constraint in the database enforces this.
- *
- * The rate is stored per reading so old bills never change when the
- * owner updates the global rate setting.
- *
- * Formula:
- *   Units Consumed = Current Reading - Previous Reading
- *   Electricity Amount = Units Consumed × Rate (₹/unit)
+ * Electricity Service — Node.js REST API
+ * All Supabase calls replaced with Node.js API calls via apiClient.
  */
-import { supabase } from './supabase';
+import api from './apiClient';
 import type { MeterReading, ElectricitySettings } from '../types';
 
-// ─────────────────────────────────────────────────────────────────────────────
-// Calculation (pure — no database)
-// ─────────────────────────────────────────────────────────────────────────────
+// ─── Helpers ──────────────────────────────────────────────────────────────────
+
+interface Paginated<T> {
+  data: T[];
+  pagination: { page: number; limit: number; total: number; totalPages: number };
+}
+
+// ─── Calculation (pure — no network) ─────────────────────────────────────────
 
 export function calculateElectricityBill(
   previousReading: number,
@@ -28,226 +24,121 @@ export function calculateElectricityBill(
   return { unitsConsumed, amount };
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// Electricity settings (global rate)
-// ─────────────────────────────────────────────────────────────────────────────
+// ─── Electricity settings ─────────────────────────────────────────────────────
 
-/**
- * Fetch the global electricity rate setting.
- * There is exactly one row in electricity_settings.
- */
 export async function getElectricitySettings(): Promise<ElectricitySettings | null> {
-  const { data, error } = await supabase
-    .from('electricity_settings')
-    .select('*')
-    .single();
-
-  if (error) {
-    if (error.code === 'PGRST116') { return null; }
-    throw error;
-  }
-  return data as ElectricitySettings;
-}
-
-/**
- * Update the global rate per unit.
- * This does NOT recalculate historical bills — each reading stores its own rate.
- */
-export async function updateElectricityRate(ratePerUnit: number): Promise<void> {
-  // Try update first; if no row exists, insert
-  const { data: existing } = await supabase
-    .from('electricity_settings')
-    .select('id')
-    .single();
-
-  if (existing) {
-    const { error } = await supabase
-      .from('electricity_settings')
-      .update({ rate_per_unit: ratePerUnit, updated_at: new Date().toISOString() })
-      .eq('id', (existing as { id: string }).id);
-    if (error) { throw error; }
-  } else {
-    const { error } = await supabase
-      .from('electricity_settings')
-      .insert({ rate_per_unit: ratePerUnit });
-    if (error) { throw error; }
-  }
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
-// Create
-// ─────────────────────────────────────────────────────────────────────────────
-
-export interface AddMeterReadingParams {
-  tenantId: string;
-  month: string;           // YYYY-MM
-  previousReading: number;
-  currentReading: number;
-  rate: number;
-  readingDate: string;     // YYYY-MM-DD
-}
-
-/**
- * Add a new meter reading for a tenant.
- *
- * Validates:
- *   - currentReading >= previousReading
- *   - No duplicate reading for the same tenant + month (UNIQUE DB constraint
- *     will also reject it, but we give a friendlier message first)
- *
- * @throws Error with a user-friendly message on validation failure
- */
-export async function addMeterReading(
-  params: AddMeterReadingParams,
-): Promise<string> {
-  const { tenantId, month, previousReading, currentReading, rate, readingDate } = params;
-
-  if (currentReading < previousReading) {
-    throw new Error('Current reading cannot be less than previous reading.');
-  }
-
-  // Friendly duplicate check before hitting the DB constraint
-  const { data: dup } = await supabase
-    .from('meter_readings')
-    .select('id')
-    .eq('tenant_id', tenantId)
-    .eq('month', month)
-    .single();
-
-  if (dup) {
-    throw new Error(
-      `A meter reading for ${month} already exists for this tenant. Delete the existing one to re-enter.`,
+  try {
+    const data = await api.get<{ id: string; ratePerUnit: number; updatedAt: string }>(
+      '/electricity/rate',
     );
+    if (!data) { return null; }
+    return {
+      id: data.id,
+      rate_per_unit: Number(data.ratePerUnit),
+      updated_at: data.updatedAt,
+    };
+  } catch {
+    return null;
   }
-
-  const { unitsConsumed, amount } = calculateElectricityBill(
-    previousReading,
-    currentReading,
-    rate,
-  );
-
-  const { data, error } = await supabase
-    .from('meter_readings')
-    .insert({
-      tenant_id: tenantId,
-      month,
-      previous_reading: previousReading,
-      current_reading: currentReading,
-      units_consumed: unitsConsumed,
-      rate,
-      amount,
-      reading_date: readingDate,
-    })
-    .select('id')
-    .single();
-
-  if (error) { throw error; }
-  return (data as { id: string }).id;
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// Read
-// ─────────────────────────────────────────────────────────────────────────────
+export async function updateElectricityRate(ratePerUnit: number): Promise<void> {
+  await api.put('/electricity/rate', { ratePerUnit });
+}
+
+// ─── Read ─────────────────────────────────────────────────────────────────────
 
 export async function getAllMeterReadings(): Promise<MeterReading[]> {
-  const { data, error } = await supabase
-    .from('meter_readings')
-    .select('*')
-    .order('reading_date', { ascending: false });
-  if (error) { throw error; }
-  return (data ?? []) as MeterReading[];
+  const res = await api.get<Paginated<MeterReading>>('/electricity?limit=100');
+  return (res.data ?? []).map(mapReading);
 }
 
-export async function getMeterReadingsForTenant(
-  tenantId: string,
-): Promise<MeterReading[]> {
-  const { data, error } = await supabase
-    .from('meter_readings')
-    .select('*')
-    .eq('tenant_id', tenantId)
-    .order('reading_date', { ascending: false });
-  if (error) { throw error; }
-  return (data ?? []) as MeterReading[];
+export async function getMeterReadingsForTenant(tenantId: string): Promise<MeterReading[]> {
+  const res = await api.get<Paginated<MeterReading>>(
+    `/electricity?tenantId=${tenantId}&limit=100`,
+  );
+  return (res.data ?? []).map(mapReading);
 }
 
-/**
- * Get the most recent reading for a tenant.
- * Used to pre-fill previous_reading when adding a new month's reading.
- */
 export async function getLatestReadingForTenant(
   tenantId: string,
 ): Promise<MeterReading | null> {
-  const { data, error } = await supabase
-    .from('meter_readings')
-    .select('*')
-    .eq('tenant_id', tenantId)
-    .order('reading_date', { ascending: false })
-    .limit(1)
-    .single();
-
-  if (error) {
-    if (error.code === 'PGRST116') { return null; }
-    throw error;
-  }
-  return data as MeterReading;
+  const res = await api.get<Paginated<MeterReading>>(
+    `/electricity?tenantId=${tenantId}&limit=1`,
+  );
+  const item = res.data?.[0];
+  return item ? mapReading(item) : null;
 }
 
-/**
- * Return the most recent reading strictly before the month being entered.
- * This prevents a later reading from being used when an owner adds a
- * historical month out of order.
- */
 export async function getLatestReadingBeforeMonth(
   tenantId: string,
   month: string,
 ): Promise<MeterReading | null> {
-  const { data, error } = await supabase
-    .from('meter_readings')
-    .select('*')
-    .eq('tenant_id', tenantId)
-    .lt('month', month)
-    .order('month', { ascending: false })
-    .limit(1)
-    .maybeSingle();
-
-  if (error) { throw error; }
-  return data as MeterReading | null;
+  const res = await api.get<Paginated<MeterReading>>(
+    `/electricity?tenantId=${tenantId}&limit=100`,
+  );
+  const readings = (res.data ?? [])
+    .map(mapReading)
+    .filter(r => r.month < month)
+    .sort((a, b) => b.month.localeCompare(a.month));
+  return readings[0] ?? null;
 }
 
-/**
- * Get the reading for a specific tenant + month.
- * Returns null if not yet recorded.
- */
 export async function getReadingForMonth(
   tenantId: string,
   month: string,
 ): Promise<MeterReading | null> {
-  const { data, error } = await supabase
-    .from('meter_readings')
-    .select('*')
-    .eq('tenant_id', tenantId)
-    .eq('month', month)
-    .single();
-
-  if (error) {
-    if (error.code === 'PGRST116') { return null; }
-    throw error;
-  }
-  return data as MeterReading;
+  const res = await api.get<Paginated<MeterReading>>(
+    `/electricity?tenantId=${tenantId}&month=${month}&limit=1`,
+  );
+  const item = res.data?.[0];
+  return item ? mapReading(item) : null;
 }
 
-/**
- * Check whether a reading already exists for a given tenant + month.
- */
 export async function readingExistsForMonth(
   tenantId: string,
   month: string,
 ): Promise<boolean> {
-  const { data } = await supabase
-    .from('meter_readings')
-    .select('id')
-    .eq('tenant_id', tenantId)
-    .eq('month', month)
-    .single();
-  return !!data;
+  const reading = await getReadingForMonth(tenantId, month);
+  return reading !== null;
+}
+
+// ─── Create ───────────────────────────────────────────────────────────────────
+
+export interface AddMeterReadingParams {
+  tenantId: string;
+  month: string;
+  previousReading: number;
+  currentReading: number;
+  rate: number;
+  readingDate: string;
+}
+
+export async function addMeterReading(params: AddMeterReadingParams): Promise<string> {
+  const reading = await api.post<{ id: string }>('/electricity', {
+    tenantId: params.tenantId,
+    month: params.month,
+    previousReading: params.previousReading,
+    currentReading: params.currentReading,
+    rate: params.rate,
+    readingDate: params.readingDate,
+  });
+  return reading.id;
+}
+
+// ─── Map API response to local type ──────────────────────────────────────────
+// API returns camelCase; local types use snake_case
+
+function mapReading(r: MeterReading & Record<string, unknown>): MeterReading {
+  return {
+    id: r.id,
+    tenant_id: (r.tenantId as string) ?? r.tenant_id,
+    month: r.month,
+    previous_reading: Number((r.previousReading as number) ?? r.previous_reading),
+    current_reading: Number((r.currentReading as number) ?? r.current_reading),
+    units_consumed: Number((r.unitsConsumed as number) ?? r.units_consumed),
+    rate: Number(r.rate),
+    amount: Number(r.amount),
+    reading_date: (r.readingDate as string) ?? r.reading_date,
+  };
 }

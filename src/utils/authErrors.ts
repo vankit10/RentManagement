@@ -1,18 +1,23 @@
 /**
- * Unified error message mapper for all Supabase errors.
+ * Unified error message mapper for all auth errors.
  *
- * Auth-layer errors (OTP, login, registration) are handled here via
- * message-text matching — Supabase Auth does not use short code strings.
- *
- * DB/PostgREST errors are delegated to getSupabaseErrorMessage() so
- * mutation screens that call getFirebaseErrorMessage() also get proper
- * messages for constraint violations, RLS denials, network failures, etc.
+ * Handles:
+ *   - ApiError from Node.js backend (REST API)
+ *   - Legacy Supabase errors (for backwards compatibility)
+ *   - Network errors
  */
 import { getSupabaseErrorMessage } from './supabaseErrors';
+import { ApiError } from '../services/apiClient';
 
 export function getAuthErrorMessage(error: unknown): string {
   if (!error) {
     return 'Something went wrong. Please try again.';
+  }
+
+  // ── Handle ApiError from Node.js backend ──────────────────────────────────
+  if (error instanceof ApiError) {
+    // Use the error message directly from the API
+    return error.message || 'Something went wrong. Please try again.';
   }
 
   const message =

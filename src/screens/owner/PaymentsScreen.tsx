@@ -29,6 +29,7 @@ import {
 import { getAllTenants } from '../../services/tenantService';
 import { formatCurrency, formatDate, formatMonth } from '../../utils/helpers';
 import { getSupabaseErrorMessage } from '../../utils/supabaseErrors';
+import { logButtonPress } from '../../utils/logger';
 import type { OwnerStackParamList, RentRecord, RentStatus, Tenant } from '../../types';
 
 type NavProp = NativeStackNavigationProp<OwnerStackParamList>;
@@ -171,6 +172,7 @@ export default function OwnerPaymentsScreen() {
 
   // ── Mark paid inline ───────────────────────────────────────────────────────
   const handleMarkPaid = useCallback((record: RentRecord) => {
+    logButtonPress('OwnerPaymentsScreen', 'mark_paid_click', { tenantId: record.tenant_id, month: record.month });
     const tenant = tenantMap[record.tenant_id];
     const name = tenant?.name ?? 'this tenant';
     Alert.alert(
@@ -203,6 +205,7 @@ export default function OwnerPaymentsScreen() {
 
   // ── Generate current month records ─────────────────────────────────────────
   const handleGenerateMonth = useCallback(async () => {
+    logButtonPress('OwnerPaymentsScreen', 'generate_month_records');
     setGeneratingMonth(true);
     try {
       const count = await generateCurrentMonthRent();
@@ -223,10 +226,12 @@ export default function OwnerPaymentsScreen() {
   }, [loadData]);
 
   const handleNavigate = useCallback((tenantId: string) => {
+    logButtonPress('OwnerPaymentsScreen', 'open_tenant_detail', { tenantId });
     navigation.navigate('TenantDetail', { tenantId });
   }, [navigation]);
 
   const handleRecordPayment = useCallback((tenantId: string) => {
+    logButtonPress('OwnerPaymentsScreen', 'record_payment_fab', { tenantId });
     navigation.navigate('RecordPayment', { tenantId });
   }, [navigation]);
 
@@ -266,7 +271,10 @@ export default function OwnerPaymentsScreen() {
           <TouchableOpacity
             key={tab}
             style={[styles.tab, activeTab === tab && styles.tabActive]}
-            onPress={() => setActiveTab(tab)}
+            onPress={() => {
+              logButtonPress('OwnerPaymentsScreen', 'filter_tab', { tab });
+              setActiveTab(tab);
+            }}
             accessibilityLabel={`Filter ${tab}`}
           >
             <Text style={[styles.tabText, activeTab === tab && styles.tabTextActive]}>
@@ -289,11 +297,17 @@ export default function OwnerPaymentsScreen() {
       <View style={styles.tenantFilterWrap}>
         <Text style={styles.tenantFilterLabel}>FILTER BY TENANT</Text>
         <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.tenantFilterRow}>
-          <TouchableOpacity style={[styles.tenantPill, !selectedTenantId && styles.tenantPillActive]} onPress={() => setSelectedTenantId(null)}>
+          <TouchableOpacity style={[styles.tenantPill, !selectedTenantId && styles.tenantPillActive]} onPress={() => {
+            logButtonPress('OwnerPaymentsScreen', 'tenant_filter_all');
+            setSelectedTenantId(null);
+          }}>
             <Text style={[styles.tenantPillText, !selectedTenantId && styles.tenantPillTextActive]}>All Tenants</Text>
           </TouchableOpacity>
           {Object.values(tenantMap).map(tenant => (
-            <TouchableOpacity key={tenant.id} style={[styles.tenantPill, selectedTenantId === tenant.id && styles.tenantPillActive]} onPress={() => setSelectedTenantId(tenant.id)}>
+            <TouchableOpacity key={tenant.id} style={[styles.tenantPill, selectedTenantId === tenant.id && styles.tenantPillActive]} onPress={() => {
+              logButtonPress('OwnerPaymentsScreen', 'tenant_filter_specific', { tenantId: tenant.id });
+              setSelectedTenantId(tenant.id);
+            }}>
               <Text style={[styles.tenantPillText, selectedTenantId === tenant.id && styles.tenantPillTextActive]}>{tenant.name}</Text>
             </TouchableOpacity>
           ))}
@@ -312,7 +326,11 @@ export default function OwnerPaymentsScreen() {
           <Text style={styles.errorMessage}>{loadError}</Text>
           <TouchableOpacity
             style={styles.errorRetryBtn}
-            onPress={() => { setIsLoading(true); loadData(true); }}
+            onPress={() => {
+              logButtonPress('OwnerPaymentsScreen', 'retry_load_payments');
+              setIsLoading(true);
+              loadData(true);
+            }}
             accessibilityLabel="Retry loading payments"
           >
             <Text style={styles.errorRetryBtnText}>Try Again</Text>

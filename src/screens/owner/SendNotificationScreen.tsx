@@ -21,6 +21,7 @@ import AuthInput from '../../components/AuthInput';
 import { sendNotification, broadcastNotification } from '../../services/notificationService';
 import { getAllTenants } from '../../services/tenantService';
 import { getFirebaseErrorMessage } from '../../utils/firebaseErrors';
+import { logButtonPress } from '../../utils/logger';
 import type { NotificationType, OwnerStackParamList, Tenant } from '../../types';
 
 type Props = NativeStackScreenProps<OwnerStackParamList, 'SendNotification'>;
@@ -81,6 +82,7 @@ export default function SendNotificationScreen({ route, navigation }: Props) {
 
   // ── Send ──────────────────────────────────────────────────────────────────
   const handleSend = useCallback(async () => {
+    logButtonPress('SendNotificationScreen', 'send_notification', { broadcastAll, selectedTenantId, notifType });
     if (!validate()) { return; }
     setIsSending(true);
     try {
@@ -124,7 +126,10 @@ export default function SendNotificationScreen({ route, navigation }: Props) {
   return (
     <SafeAreaView style={styles.safe} edges={['top']}>
       <View style={styles.header}>
-        <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backBtn} accessibilityLabel="Go back">
+        <TouchableOpacity onPress={() => {
+          logButtonPress('SendNotificationScreen', 'go_back');
+          navigation.goBack();
+        }} style={styles.backBtn} accessibilityLabel="Go back">
           <Icon name="arrow-left" size={24} color={Colors.textInverse} />
         </TouchableOpacity>
         <Text style={styles.headerTitle}>Send Notification</Text>
@@ -140,7 +145,11 @@ export default function SendNotificationScreen({ route, navigation }: Props) {
             {/* Broadcast toggle */}
             <TouchableOpacity
               style={[styles.broadcastRow, broadcastAll && styles.broadcastRowActive]}
-              onPress={() => { setBroadcastAll(p => !p); setSelectedTenantId(null); }}
+              onPress={() => {
+                logButtonPress('SendNotificationScreen', 'toggle_broadcast_all', { next: !broadcastAll });
+                setBroadcastAll(p => !p);
+                setSelectedTenantId(null);
+              }}
               accessibilityLabel="Send to all tenants"
             >
               <Icon
@@ -174,7 +183,10 @@ export default function SendNotificationScreen({ route, navigation }: Props) {
                         styles.tenantRow,
                         selectedTenantId === t.id && styles.tenantRowActive,
                       ]}
-                      onPress={() => setSelectedTenantId(t.id)}
+                      onPress={() => {
+                        logButtonPress('SendNotificationScreen', 'select_tenant', { tenantId: t.id });
+                        setSelectedTenantId(t.id);
+                      }}
                       accessibilityLabel={`Select tenant ${t.name}`}
                     >
                       <View style={styles.tenantAvatar}>
@@ -206,7 +218,10 @@ export default function SendNotificationScreen({ route, navigation }: Props) {
                   styles.typeChip,
                   notifType === nt.value && { borderColor: nt.color, backgroundColor: `${nt.color}18` },
                 ]}
-                onPress={() => setNotifType(nt.value)}
+                onPress={() => {
+                  logButtonPress('SendNotificationScreen', 'select_notification_type', { type: nt.value });
+                  setNotifType(nt.value);
+                }}
                 accessibilityLabel={`Type: ${nt.label}`}
               >
                 <Icon name={nt.icon} size={16} color={notifType === nt.value ? nt.color : Colors.textMuted} />
@@ -258,7 +273,10 @@ export default function SendNotificationScreen({ route, navigation }: Props) {
           {/* ── Send button ───────────────────────────── */}
           <TouchableOpacity
             style={[styles.sendBtn, isSending && styles.btnDisabled]}
-            onPress={handleSend}
+            onPress={() => {
+              logButtonPress('SendNotificationScreen', 'send_notification_button');
+              handleSend();
+            }}
             disabled={isSending}
             accessibilityLabel="Send notification"
             accessibilityRole="button"

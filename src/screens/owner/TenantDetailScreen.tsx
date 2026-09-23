@@ -36,6 +36,7 @@ import {
 } from '../../services/tenantService';
 import { formatCurrency, formatDate } from '../../utils/helpers';
 import { getSupabaseErrorMessage } from '../../utils/supabaseErrors';
+import { logButtonPress } from '../../utils/logger';
 import type { OwnerStackParamList, Tenant, RentRecord, MeterReading } from '../../types';
 
 type Props = NativeStackScreenProps<OwnerStackParamList, 'TenantDetail'>;
@@ -267,6 +268,7 @@ export default function TenantDetailScreen({ route, navigation }: Props) {
   }, [loadData]);
 
   const handleDeactivate = useCallback(() => {
+    logButtonPress('TenantDetailScreen', 'deactivate_tenant_click', { tenantId, currentStatus: tenant?.status });
     if (!tenant) { return; }
     const isActive = tenant.status === 'active';
     Alert.alert(
@@ -281,6 +283,7 @@ export default function TenantDetailScreen({ route, navigation }: Props) {
               text: 'Deactivate',
               style: 'destructive',
               onPress: async () => {
+                logButtonPress('TenantDetailScreen', 'deactivate_tenant_confirmed', { tenantId });
                 try {
                   await deactivateTenant(tenantId);
                   setTenant(prev => prev ? { ...prev, status: 'inactive' } : prev);
@@ -370,7 +373,10 @@ export default function TenantDetailScreen({ route, navigation }: Props) {
       {/* Header */}
       <View style={styles.header}>
         <TouchableOpacity
-          onPress={() => navigation.goBack()}
+          onPress={() => {
+            logButtonPress('TenantDetailScreen', 'go_back');
+            navigation.goBack();
+          }}
           style={styles.backBtn}
           accessibilityLabel="Go back"
         >
@@ -378,7 +384,10 @@ export default function TenantDetailScreen({ route, navigation }: Props) {
         </TouchableOpacity>
         <Text style={styles.headerTitle} numberOfLines={1}>{tenant.name}</Text>
         <TouchableOpacity
-          onPress={() => navigation.navigate('AddEditTenant', { tenantId })}
+          onPress={() => {
+            logButtonPress('TenantDetailScreen', 'edit_tenant', { tenantId });
+            navigation.navigate('AddEditTenant', { tenantId });
+          }}
           style={styles.editBtn}
           accessibilityLabel="Edit tenant"
         >
@@ -417,28 +426,40 @@ export default function TenantDetailScreen({ route, navigation }: Props) {
           <ActionButton
             icon="cash-plus"
             label="Record Payment"
-            onPress={() => navigation.navigate('RecordPayment', { tenantId })}
+            onPress={() => {
+              logButtonPress('TenantDetailScreen', 'record_payment', { tenantId });
+              navigation.navigate('RecordPayment', { tenantId });
+            }}
             color={Colors.success}
             bg={Colors.successLight}
           />
           <ActionButton
             icon="meter-electric-outline"
             label="Meter Reading"
-            onPress={() => navigation.navigate('AddMeterReading', { tenantId })}
+            onPress={() => {
+              logButtonPress('TenantDetailScreen', 'add_meter_reading', { tenantId });
+              navigation.navigate('AddMeterReading', { tenantId });
+            }}
             color={Colors.info}
             bg={Colors.infoLight}
           />
           <ActionButton
             icon="bell-plus-outline"
             label="Notify"
-            onPress={() => navigation.navigate('SendNotification', { tenantId })}
+            onPress={() => {
+              logButtonPress('TenantDetailScreen', 'notify_tenant', { tenantId });
+              navigation.navigate('SendNotification', { tenantId });
+            }}
             color={Colors.primary}
             bg={Colors.surfaceSecondary}
           />
           <ActionButton
             icon="account-off-outline"
             label={isActive ? 'Deactivate' : 'Inactive'}
-            onPress={handleDeactivate}
+            onPress={() => {
+              logButtonPress('TenantDetailScreen', 'deactivate_button');
+              handleDeactivate();
+            }}
             color={Colors.error}
             bg={Colors.errorLight}
           />

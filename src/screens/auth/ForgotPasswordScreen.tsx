@@ -19,6 +19,7 @@ import AuthInput from '../../components/AuthInput';
 import { sendPasswordReset } from '../../services/authService';
 import { isValidEmail } from '../../utils/helpers';
 import { getFirebaseErrorMessage } from '../../utils/firebaseErrors';
+import { logButtonPress } from '../../utils/logger';
 import type { AuthStackParamList } from '../../types';
 
 type Props = NativeStackScreenProps<AuthStackParamList, 'ForgotPassword'>;
@@ -45,6 +46,7 @@ export default function ForgotPasswordScreen({ navigation }: Props) {
 
   // ── Submit ──────────────────────────────────────────────────────────────────
   async function handleReset() {
+    logButtonPress('ForgotPasswordScreen', 'send_reset_link', { email: email.trim().toLowerCase() });
     if (!validate()) { return; }
     setIsLoading(true);
     try {
@@ -77,7 +79,10 @@ export default function ForgotPasswordScreen({ navigation }: Props) {
           {/* ── Header ──────────────────────────────────── */}
           <View style={styles.header}>
             <TouchableOpacity
-              onPress={() => navigation.goBack()}
+              onPress={() => {
+                logButtonPress('ForgotPasswordScreen', 'go_back');
+                navigation.goBack();
+              }}
               style={styles.backBtn}
               accessibilityLabel="Go back"
               hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
@@ -115,7 +120,10 @@ export default function ForgotPasswordScreen({ navigation }: Props) {
                 </Text>
                 <TouchableOpacity
                   style={styles.backToLoginBtn}
-                  onPress={() => navigation.navigate('Login')}
+                  onPress={() => {
+                    logButtonPress('ForgotPasswordScreen', 'back_to_login');
+                    navigation.navigate('Login');
+                  }}
                   accessibilityLabel="Back to login"
                   accessibilityRole="button"
                 >
@@ -162,7 +170,10 @@ export default function ForgotPasswordScreen({ navigation }: Props) {
 
                 <TouchableOpacity
                   style={styles.cancelBtn}
-                  onPress={() => navigation.navigate('Login')}
+                  onPress={() => {
+                    logButtonPress('ForgotPasswordScreen', 'cancel_reset');
+                    navigation.navigate('Login');
+                  }}
                   accessibilityLabel="Back to login"
                 >
                   <Text style={styles.cancelBtnText}>Back to Sign In</Text>

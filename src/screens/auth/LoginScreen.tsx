@@ -35,12 +35,15 @@ import AuthInput from '../../components/AuthInput';
 import { signIn, signInWithPhone, requestOtp } from '../../services/authService';
 import { isValidPhone, isValidEmail } from '../../utils/helpers';
 import { getFirebaseErrorMessage } from '../../utils/authErrors';
+import { useAuth } from '../../context/AuthContext';
+import { logButtonPress } from '../../utils/logger';
 import type { AuthStackParamList } from '../../types';
 
 type Props = NativeStackScreenProps<AuthStackParamList, 'Login'>;
 type LoginMode = 'otp' | 'password';
 
 export default function LoginScreen({ navigation }: Props) {
+  const { setAuthUser } = useAuth();
   const [mode, setMode] = useState<LoginMode>('otp');
 
   // ── OTP tab — single identifier field (phone OR email) ───────────────────
@@ -105,6 +108,7 @@ export default function LoginScreen({ navigation }: Props) {
 
   // ── Email login (owner / email-password path) ─────────────────────────────
   async function handleEmailLogin() {
+    logButtonPress('LoginScreen', 'email_login', { identifier: identifier.trim().toLowerCase() });
     let valid = true;
     if (!identifier.trim() || !isValidEmail(identifier)) {
       setIdentifierError('Enter a valid email address.');
@@ -122,8 +126,13 @@ export default function LoginScreen({ navigation }: Props) {
 
     setIsLoading(true);
     try {
-      await signIn(identifier.trim().toLowerCase(), emailPassword);
+      console.log('[LoginScreen] Attempting email login with:', identifier.trim().toLowerCase());
+      const authUser = await signIn(identifier.trim().toLowerCase(), emailPassword);
+      console.log('[LoginScreen] signIn returned authUser:', authUser);
+      setAuthUser(authUser);
+      console.log('[LoginScreen] setAuthUser called successfully');
     } catch (err) {
+      console.error('[LoginScreen] Email login error:', err);
       Toast.show({
         type: 'error',
         text1: 'Login Failed',
@@ -137,6 +146,7 @@ export default function LoginScreen({ navigation }: Props) {
 
   // ── Password Login — accepts phone OR real email ─────────────────────────
   async function handlePasswordLogin() {
+    logButtonPress('LoginScreen', 'password_login', { identifier: pwIdentifier.trim() });
     let valid = true;
     const id = pwIdentifier.trim();
 
@@ -169,13 +179,15 @@ export default function LoginScreen({ navigation }: Props) {
 
     setIsLoading(true);
     try {
+      let authUser;
       if (isPwEmailMode) {
         // Real email login (tenant registered with email+password by owner)
-        await signIn(id.toLowerCase(), password);
+        authUser = await signIn(id.toLowerCase(), password);
       } else {
         // Phone-derived internal email login (legacy phone+password path)
-        await signInWithPhone(id, password);
+        authUser = await signInWithPhone(id, password);
       }
+      setAuthUser(authUser);
     } catch (err) {
       Toast.show({
         type: 'error',
@@ -224,6 +236,7 @@ export default function LoginScreen({ navigation }: Props) {
               <TouchableOpacity
                 style={[styles.tab, mode === 'otp' && styles.tabActive]}
                 onPress={() => {
+                  logButtonPress('LoginScreen', 'switch_tab_otp');
                   setMode('otp');
                   setIdentifier('');
                   setIdentifierError('');
@@ -244,6 +257,7 @@ export default function LoginScreen({ navigation }: Props) {
               <TouchableOpacity
                 style={[styles.tab, mode === 'password' && styles.tabActive]}
                 onPress={() => {
+                  logButtonPress('LoginScreen', 'switch_tab_password');
                   setMode('password');
                   setPwIdentifier('');
                   setPwIdentifierError('');
@@ -303,7 +317,10 @@ export default function LoginScreen({ navigation }: Props) {
                     />
                     <TouchableOpacity
                       style={styles.forgotBtn}
-                      onPress={() => navigation.navigate('ForgotPassword')}
+                      onPress={() => {
+                        logButtonPress('LoginScreen', 'forgot_password');
+                        navigation.navigate('ForgotPassword');
+                      }}
                     >
                       <Text style={styles.forgotText}>Forgot Password?</Text>
                     </TouchableOpacity>
@@ -313,7 +330,10 @@ export default function LoginScreen({ navigation }: Props) {
                 {/* CTA button — label changes based on mode */}
                 <TouchableOpacity
                   style={[styles.primaryBtn, isLoading && styles.btnDisabled]}
-                  onPress={isEmailMode ? handleEmailLogin : handleSendOtp}
+                  onPress={() => {
+                    logButtonPress('LoginScreen', isEmailMode ? 'submit_email_login' : 'send_otp');
+                    return isEmailMode ? handleEmailLogin() : handleSendOtp();
+                  }}
                   disabled={isLoading}
                   accessibilityLabel={isEmailMode ? 'Sign In' : 'Send OTP'}
                   accessibilityRole="button"
@@ -367,13 +387,19 @@ export default function LoginScreen({ navigation }: Props) {
                 />
                 <TouchableOpacity
                   style={styles.forgotBtn}
-                  onPress={() => navigation.navigate('ForgotPassword')}
+                  onPress={() => {
+                    logButtonPress('LoginScreen', 'forgot_password');
+                    navigation.navigate('ForgotPassword');
+                  }}
                 >
                   <Text style={styles.forgotText}>Forgot Password?</Text>
                 </TouchableOpacity>
                 <TouchableOpacity
                   style={[styles.primaryBtn, isLoading && styles.btnDisabled]}
-                  onPress={handlePasswordLogin}
+                  onPress={() => {
+                    logButtonPress('LoginScreen', 'submit_password_login');
+                    handlePasswordLogin();
+                  }}
                   disabled={isLoading}
                   accessibilityLabel="Sign In"
                   accessibilityRole="button"
@@ -398,7 +424,10 @@ export default function LoginScreen({ navigation }: Props) {
             </View>
             <TouchableOpacity
               style={styles.secondaryBtn}
-              onPress={() => navigation.navigate('Register')}
+              onPress={() => {
+                logButtonPress('LoginScreen', 'go_to_register');
+                navigation.navigate('Register');
+              }}
               accessibilityLabel="Create Account"
               accessibilityRole="button"
             >

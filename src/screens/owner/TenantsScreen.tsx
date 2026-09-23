@@ -19,6 +19,7 @@ import EmptyState from '../../components/EmptyState';
 import { getAllTenants } from '../../services/tenantService';
 import { formatDate } from '../../utils/helpers';
 import { getSupabaseErrorMessage } from '../../utils/supabaseErrors';
+import { logButtonPress } from '../../utils/logger';
 import type { OwnerStackParamList, Tenant, TenantStatus } from '../../types';
 
 type NavProp = NativeStackNavigationProp<OwnerStackParamList>;
@@ -173,12 +174,14 @@ export default function OwnerTenantsScreen() {
 
   const handlePress = useCallback(
     (tenantId: string) => {
+      logButtonPress('OwnerTenantsScreen', 'open_tenant_detail', { tenantId });
       navigation.navigate('TenantDetail', { tenantId });
     },
     [navigation],
   );
 
   const handleAdd = useCallback(() => {
+    logButtonPress('OwnerTenantsScreen', 'add_tenant');
     navigation.navigate('AddEditTenant', {});
   }, [navigation]);
 
@@ -223,7 +226,10 @@ export default function OwnerTenantsScreen() {
             key={f}
             label={f.charAt(0).toUpperCase() + f.slice(1)}
             active={filter === f}
-            onPress={() => setFilter(f)}
+            onPress={() => {
+              logButtonPress('OwnerTenantsScreen', 'filter_tenants', { filter: f });
+              setFilter(f);
+            }}
           />
         ))}
       </View>
@@ -240,7 +246,11 @@ export default function OwnerTenantsScreen() {
           <Text style={styles.errorMessage}>{loadError}</Text>
           <TouchableOpacity
             style={styles.errorRetryBtn}
-            onPress={() => { setIsLoading(true); loadTenants(); }}
+            onPress={() => {
+              logButtonPress('OwnerTenantsScreen', 'retry_load_tenants');
+              setIsLoading(true);
+              loadTenants();
+            }}
             accessibilityLabel="Retry loading tenants"
           >
             <Text style={styles.errorRetryBtnText}>Try Again</Text>

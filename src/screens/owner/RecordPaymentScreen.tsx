@@ -29,6 +29,7 @@ import {
 import { getTenantById } from '../../services/tenantService';
 import { formatCurrency, formatDate, formatMonth } from '../../utils/helpers';
 import { getSupabaseErrorMessage } from '../../utils/supabaseErrors';
+import { logButtonPress } from '../../utils/logger';
 import type { OwnerStackParamList, RentRecord, Tenant } from '../../types';
 
 type Props = NativeStackScreenProps<OwnerStackParamList, 'RecordPayment'>;
@@ -118,6 +119,7 @@ export default function RecordPaymentScreen({ route, navigation }: Props) {
 
   // ── Submit ────────────────────────────────────────────────────────────────
   const handleSubmit = useCallback(async () => {
+    logButtonPress('RecordPaymentScreen', 'submit_payment', { tenantId, month: selectedMonth, amount: amountStr });
     if (!validate() || !tenant) { return; }
     setIsSaving(true);
 
@@ -260,7 +262,10 @@ export default function RecordPaymentScreen({ route, navigation }: Props) {
                     isSelected && styles.monthChipActive,
                     rec?.status === 'Paid' && styles.monthChipPaid,
                   ]}
-                  onPress={() => setSelectedMonth(opt.value)}
+                  onPress={() => {
+                    logButtonPress('RecordPaymentScreen', 'select_month', { month: opt.value });
+                    setSelectedMonth(opt.value);
+                  }}
                   accessibilityLabel={`Select ${opt.label}`}
                 >
                   <Text
@@ -351,7 +356,10 @@ export default function RecordPaymentScreen({ route, navigation }: Props) {
               styles.submitBtn,
               (isSaving || existingForMonth?.status === 'Paid') && styles.btnDisabled,
             ]}
-            onPress={handleSubmit}
+            onPress={() => {
+              logButtonPress('RecordPaymentScreen', 'submit_payment_button');
+              handleSubmit();
+            }}
             disabled={isSaving || existingForMonth?.status === 'Paid'}
             accessibilityLabel="Record payment"
             accessibilityRole="button"

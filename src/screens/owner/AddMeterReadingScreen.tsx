@@ -45,6 +45,7 @@ import {
 import { getTenantById } from '../../services/tenantService';
 import { formatCurrency, formatDate } from '../../utils/helpers';
 import { getFirebaseErrorMessage } from '../../utils/firebaseErrors';
+import { logButtonPress } from '../../utils/logger';
 import type { MeterReading, OwnerStackParamList, Tenant } from '../../types';
 
 type Props = NativeStackScreenProps<OwnerStackParamList, 'AddMeterReading'>;
@@ -160,6 +161,13 @@ export default function AddMeterReadingScreen({ route, navigation }: Props) {
 
   // ── Submit ────────────────────────────────────────────────────────────────
   const handleSubmit = useCallback(async () => {
+    logButtonPress('AddMeterReadingScreen', 'save_meter_reading', {
+      tenantId,
+      month: selectedMonth,
+      previousReading: previousStr,
+      currentReading: currentStr,
+      rate: rateStr,
+    });
     if (!validate()) { return; }
     setIsSaving(true);
     try {
@@ -192,7 +200,10 @@ export default function AddMeterReadingScreen({ route, navigation }: Props) {
     return (
       <SafeAreaView style={styles.safe} edges={['top']}>
         <View style={styles.header}>
-          <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backBtn}>
+          <TouchableOpacity onPress={() => {
+          logButtonPress('AddMeterReadingScreen', 'go_back');
+          navigation.goBack();
+        }} style={styles.backBtn}>
             <Icon name="arrow-left" size={24} color={Colors.textInverse} />
           </TouchableOpacity>
           <Text style={styles.headerTitle}>Meter Reading</Text>
@@ -216,7 +227,10 @@ export default function AddMeterReadingScreen({ route, navigation }: Props) {
   return (
     <SafeAreaView style={styles.safe} edges={['top']}>
       <View style={styles.header}>
-        <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backBtn} accessibilityLabel="Go back">
+        <TouchableOpacity onPress={() => {
+          logButtonPress('AddMeterReadingScreen', 'go_back');
+          navigation.goBack();
+        }} style={styles.backBtn} accessibilityLabel="Go back">
           <Icon name="arrow-left" size={24} color={Colors.textInverse} />
         </TouchableOpacity>
         <Text style={styles.headerTitle}>Meter Reading</Text>
@@ -259,7 +273,10 @@ export default function AddMeterReadingScreen({ route, navigation }: Props) {
           <View style={styles.card}>
             <TouchableOpacity
               style={[styles.monthSelector, monthAlreadyExists && styles.monthSelectorWarning]}
-              onPress={() => setShowMonthPicker(v => !v)}
+              onPress={() => {
+                logButtonPress('AddMeterReadingScreen', 'toggle_month_picker', { open: !showMonthPicker });
+                setShowMonthPicker(v => !v);
+              }}
               accessibilityLabel="Select month"
             >
               <View style={styles.monthSelectorLeft}>
@@ -299,6 +316,7 @@ export default function AddMeterReadingScreen({ route, navigation }: Props) {
                       opt.value === selectedMonth && styles.monthOptionSelected,
                     ]}
                     onPress={() => {
+                      logButtonPress('AddMeterReadingScreen', 'select_month', { month: opt.value });
                       setSelectedMonth(opt.value);
                       setShowMonthPicker(false);
                       clearErr('month');
@@ -405,7 +423,10 @@ export default function AddMeterReadingScreen({ route, navigation }: Props) {
           {/* Submit */}
           <TouchableOpacity
             style={[styles.submitBtn, (isSaving || monthAlreadyExists) && styles.btnDisabled]}
-            onPress={handleSubmit}
+            onPress={() => {
+              logButtonPress('AddMeterReadingScreen', 'save_meter_reading_button');
+              handleSubmit();
+            }}
             disabled={isSaving || monthAlreadyExists}
             accessibilityLabel="Save meter reading"
             accessibilityRole="button"

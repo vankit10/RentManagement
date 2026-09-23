@@ -18,6 +18,7 @@ import { getAllNotifications } from '../../services/notificationService';
 import { getAllTenants } from '../../services/tenantService';
 import { formatDate } from '../../utils/helpers';
 import { getSupabaseErrorMessage } from '../../utils/supabaseErrors';
+import { logButtonPress } from '../../utils/logger';
 import type { AppNotification, NotificationType, OwnerStackParamList, Tenant } from '../../types';
 
 type NavProp = NativeStackNavigationProp<OwnerStackParamList>;
@@ -146,7 +147,10 @@ export default function OwnerNotificationsScreen() {
         </View>
         <TouchableOpacity
           style={styles.composeBtn}
-          onPress={() => navigation.navigate('SendNotification', {})}
+          onPress={() => {
+            logButtonPress('OwnerNotificationsScreen', 'compose_notification');
+            navigation.navigate('SendNotification', {});
+          }}
           accessibilityLabel="Send new notification"
         >
           <Icon name="send-outline" size={20} color={Colors.textInverse} />
@@ -164,7 +168,11 @@ export default function OwnerNotificationsScreen() {
           <Text style={styles.errorMessage}>{loadError}</Text>
           <TouchableOpacity
             style={styles.errorRetryBtn}
-            onPress={() => { setIsLoading(true); loadData(); }}
+            onPress={() => {
+              logButtonPress('OwnerNotificationsScreen', 'retry_load_notifications');
+              setIsLoading(true);
+              loadData();
+            }}
             accessibilityLabel="Retry loading notifications"
           >
             <Text style={styles.errorRetryBtnText}>Try Again</Text>
@@ -178,7 +186,10 @@ export default function OwnerNotificationsScreen() {
             <NotifRow
               item={item}
               tenantName={tenantMap[item.tenant_id]?.name ?? 'Unknown Tenant'}
-              onPress={() => navigation.navigate('TenantDetail', { tenantId: item.tenant_id })}
+              onPress={() => {
+                logButtonPress('OwnerNotificationsScreen', 'open_notification_tenant', { tenantId: item.tenant_id });
+                navigation.navigate('TenantDetail', { tenantId: item.tenant_id });
+              }}
             />
           )}
           contentContainerStyle={styles.listContent}
@@ -205,7 +216,10 @@ export default function OwnerNotificationsScreen() {
       {/* FAB */}
       <TouchableOpacity
         style={styles.fab}
-        onPress={() => navigation.navigate('SendNotification', {})}
+        onPress={() => {
+          logButtonPress('OwnerNotificationsScreen', 'fab_compose_notification');
+          navigation.navigate('SendNotification', {});
+        }}
         accessibilityLabel="Compose notification"
       >
         <Icon name="bell-plus-outline" size={26} color={Colors.textInverse} />

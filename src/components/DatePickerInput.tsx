@@ -2,6 +2,7 @@ import React, { useMemo, useState } from 'react';
 import { Modal, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import Icon from 'react-native-vector-icons/MaterialCommunityIcons';
 import { Colors, FontSize, FontWeight, Radius, Spacing } from '../constants';
+import { logButtonPress } from '../utils/logger';
 
 interface Props {
   label: string;
@@ -26,14 +27,24 @@ export default function DatePickerInput({ label, value, onChange, error }: Props
   }, [visibleMonth]);
 
   const choose = (day: number) => {
-    onChange(toIso(new Date(visibleMonth.getFullYear(), visibleMonth.getMonth(), day)));
+    const chosen = toIso(new Date(visibleMonth.getFullYear(), visibleMonth.getMonth(), day));
+    logButtonPress('DatePickerInput', 'select_day', { label, chosenDate: chosen });
+    onChange(chosen);
     setOpen(false);
   };
 
   return (
     <View style={styles.container}>
       <Text style={styles.label}>{label}</Text>
-      <TouchableOpacity style={[styles.input, !!error && styles.inputError]} onPress={() => { setVisibleMonth(selected); setOpen(true); }} accessibilityLabel={`Choose ${label}`}>
+      <TouchableOpacity
+        style={[styles.input, !!error && styles.inputError]}
+        onPress={() => {
+          logButtonPress('DatePickerInput', 'open_date_picker', { label, currentValue: value });
+          setVisibleMonth(selected);
+          setOpen(true);
+        }}
+        accessibilityLabel={`Choose ${label}`}
+      >
         <Text style={styles.value}>{value || 'Select date'}</Text><Icon name="calendar-month-outline" size={20} color={Colors.primary} />
       </TouchableOpacity>
       {!!error && <Text style={styles.error}>{error}</Text>}
@@ -41,13 +52,22 @@ export default function DatePickerInput({ label, value, onChange, error }: Props
         <View style={styles.backdrop}>
           <View style={styles.modal}>
             <View style={styles.monthHeader}>
-              <TouchableOpacity onPress={() => setVisibleMonth(new Date(visibleMonth.getFullYear(), visibleMonth.getMonth() - 1, 1))}><Icon name="chevron-left" size={26} color={Colors.primary} /></TouchableOpacity>
+              <TouchableOpacity onPress={() => {
+              logButtonPress('DatePickerInput', 'previous_month', { label });
+              setVisibleMonth(new Date(visibleMonth.getFullYear(), visibleMonth.getMonth() - 1, 1));
+            }}><Icon name="chevron-left" size={26} color={Colors.primary} /></TouchableOpacity>
               <Text style={styles.monthTitle}>{visibleMonth.toLocaleString('en-IN', { month: 'long', year: 'numeric' })}</Text>
-              <TouchableOpacity onPress={() => setVisibleMonth(new Date(visibleMonth.getFullYear(), visibleMonth.getMonth() + 1, 1))}><Icon name="chevron-right" size={26} color={Colors.primary} /></TouchableOpacity>
+              <TouchableOpacity onPress={() => {
+                logButtonPress('DatePickerInput', 'next_month', { label });
+                setVisibleMonth(new Date(visibleMonth.getFullYear(), visibleMonth.getMonth() + 1, 1));
+              }}><Icon name="chevron-right" size={26} color={Colors.primary} /></TouchableOpacity>
             </View>
             <View style={styles.week}>{['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].map(day => <Text key={day} style={styles.weekDay}>{day}</Text>)}</View>
             <View style={styles.grid}>{days.map((day, index) => day === null ? <View key={`blank-${index}`} style={styles.day} /> : <TouchableOpacity key={day} style={[styles.day, selected.getFullYear() === visibleMonth.getFullYear() && selected.getMonth() === visibleMonth.getMonth() && selected.getDate() === day && styles.selectedDay]} onPress={() => choose(day)}><Text style={[styles.dayText, selected.getFullYear() === visibleMonth.getFullYear() && selected.getMonth() === visibleMonth.getMonth() && selected.getDate() === day && styles.selectedText]}>{day}</Text></TouchableOpacity>)}</View>
-            <TouchableOpacity style={styles.cancel} onPress={() => setOpen(false)}><Text style={styles.cancelText}>Cancel</Text></TouchableOpacity>
+            <TouchableOpacity style={styles.cancel} onPress={() => {
+              logButtonPress('DatePickerInput', 'cancel_picker', { label });
+              setOpen(false);
+            }}><Text style={styles.cancelText}>Cancel</Text></TouchableOpacity>
           </View>
         </View>
       </Modal>
