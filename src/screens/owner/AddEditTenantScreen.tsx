@@ -48,11 +48,7 @@ interface FormState {
   joiningDate: string;   // YYYY-MM-DD
   rentAmount: string;
   dueDate: string;       // "1"–"28"
-  // Optional password — lets tenant log in with their registered mobile number.
-  // Email can additionally be used as a login identifier.
   email: string;
-  password: string;
-  confirmPassword: string;
 }
 
 interface FormErrors {
@@ -63,8 +59,6 @@ interface FormErrors {
   rentAmount?: string;
   dueDate?: string;
   email?: string;
-  password?: string;
-  confirmPassword?: string;
 }
 
 const EMPTY_FORM: FormState = {
@@ -75,8 +69,6 @@ const EMPTY_FORM: FormState = {
   rentAmount: '',
   dueDate: '5',
   email: '',
-  password: '',
-  confirmPassword: '',
 };
 
 export default function AddEditTenantScreen({ route, navigation }: Props) {
@@ -110,10 +102,7 @@ export default function AddEditTenantScreen({ route, navigation }: Props) {
               : new Date(t.joining_date).toISOString().slice(0, 10),
           rentAmount: t.rent_amount != null ? String(t.rent_amount) : '',
           dueDate: t.due_day != null ? String(t.due_day) : '5',
-          // credentials are never pre-filled in edit mode
           email: '',
-          password: '',
-          confirmPassword: '',
         });
       })
       .catch(err => {
@@ -143,15 +132,16 @@ export default function AddEditTenantScreen({ route, navigation }: Props) {
   function validate(): boolean {
     const next: FormErrors = {};
 
-    if (!form.name.trim()) {
+    const isEmailOnly = !!form.email.trim() && !form.phone.trim();
+    if (!form.name.trim() && !isEmailOnly) {
       next.name = 'Full name is required.';
     } else if (form.name.trim().length < 2) {
       next.name = 'Name must be at least 2 characters.';
     }
 
-    if (!form.phone.trim()) {
+    if (!form.phone.trim() && !form.email.trim()) {
       next.phone = 'Mobile number is required.';
-    } else if (!isValidPhone(form.phone)) {
+    } else if (form.phone.trim() && !isValidPhone(form.phone)) {
       next.phone = 'Enter a valid 10-digit Indian mobile number.';
     }
 
@@ -171,25 +161,8 @@ export default function AddEditTenantScreen({ route, navigation }: Props) {
       }
     }
 
-    // Password login — password is required only when the owner chooses it;
-    // email is optional because the tenant can always use their mobile number.
-    const hasEmail = form.email.trim().length > 0;
-    const hasPassword = form.password.length > 0;
-
-    if (hasEmail || hasPassword) {
-      if (hasEmail && !isValidEmail(form.email)) {
-        next.email = 'Enter a valid email address.';
-      }
-
-      if (!hasPassword) {
-        next.password = 'Enter a password.';
-      } else if (form.password.length < 6) {
-        next.password = 'Password must be at least 6 characters.';
-      }
-
-      if (hasPassword && form.confirmPassword !== form.password) {
-        next.confirmPassword = 'Passwords do not match.';
-      }
+    if (form.email.trim() && !isValidEmail(form.email)) {
+      next.email = 'Enter a valid email address.';
     }
 
     setErrors(next);
@@ -223,7 +196,6 @@ export default function AddEditTenantScreen({ route, navigation }: Props) {
         });
       } else {
         // Create — phone + name required; rest optional
-        const hasCredentials = form.password.length > 0;
         const result = await createTenant({
           name: form.name.trim(),
           phone: form.phone.trim(),
@@ -232,23 +204,20 @@ export default function AddEditTenantScreen({ route, navigation }: Props) {
           rent_amount: form.rentAmount ? Number(form.rentAmount) : 0,
           due_day: form.dueDate ? Number(form.dueDate) : 5,
           email: form.email.trim() || undefined,
-          password: hasCredentials ? form.password : undefined,
         });
 
         let toastText2 = result.smsSent
           ? 'Registration SMS sent to tenant.'
           : 'Tenant registered.';
 
-        if (hasCredentials) {
-          toastText2 = result.authAccountCreated
-            ? 'Tenant registered with password login.'
-            : 'Tenant registered.';
-        }
-
         Toast.show({
           type: 'success',
           text1: 'Tenant Registered',
-          text2: toastText2,
+          text2: result.defaultPasswordAssigned
+            ? 'New account created. Default password: Ad123456'
+            : result.usedExistingAccount
+              ? 'Existing tenant account linked to you.'
+              : toastText2,
           position: 'top',
           visibilityTime: 4000,
         });
@@ -354,16 +323,16 @@ export default function AddEditTenantScreen({ route, navigation }: Props) {
             <View style={styles.requiredBanner}>
               <Icon name="information-outline" size={18} color={Colors.info} />
               <Text style={styles.requiredBannerText}>
-                Name and mobile number are required. All other fields can be filled in later.
+                Enter a tenant email to link an existing account. For a new email-only account, the default password is Ad123456. You can also register with name and mobile number.
               </Text>
             </View>
           )}
 
           {/* ── Personal details ──────────────────────── */}
-          <Text style={styles.groupLabel}>REQUIRED</Text>
+          <Text style={styles.groupLabel}>TENANT ACCOUNT</Text>
           <View style={styles.card}>
             <AuthInput
-              label="Full Name"
+              label="Full Name (optional with email)"
               placeholder="e.g. Rahul Sharma"
               value={form.name}
               onChangeText={v => setField('name', v)}
@@ -372,7 +341,7 @@ export default function AddEditTenantScreen({ route, navigation }: Props) {
               returnKeyType="next"
             />
             <AuthInput
-              label="Mobile Number"
+              label="Mobile Number (optional with email)"
               placeholder="10-digit mobile number"
               value={form.phone}
               onChangeText={v => setField('phone', v)}
@@ -450,13 +419,13 @@ export default function AddEditTenantScreen({ route, navigation }: Props) {
             </View>
           )}
 
-          {/* ── Login credentials (create only, optional) ── */}
+          {/* ── Tenant email (create only, optional) ── */}
           {!isEdit && (
             <>
-              <Text style={styles.groupLabel}>LOGIN CREDENTIALS  (OPTIONAL)</Text>
+              <Text style={styles.groupLabel}>EMAIL ADDRESS  (OPTIONAL)</Text>
               <View style={styles.card}>
                 <Text style={styles.credentialsHint}>
-                  Set a password for password login. Leave email blank to use the registered mobile number; if you provide an email, the tenant must use that email. Leave the password blank for OTP-only login.
+                  Use the tenant’s registered email to link their existing account. A new email account receives the default password Ad123456, which the tenant can change later.
                 </Text>
                 <AuthInput
                   label="Email Address (Optional)"
@@ -467,25 +436,6 @@ export default function AddEditTenantScreen({ route, navigation }: Props) {
                   keyboardType="email-address"
                   autoCapitalize="none"
                   returnKeyType="next"
-                />
-                <AuthInput
-                  label="Password"
-                  placeholder="Minimum 6 characters"
-                  value={form.password}
-                  onChangeText={v => setField('password', v)}
-                  error={errors.password}
-                  secureTextEntry
-                  returnKeyType="next"
-                />
-                <AuthInput
-                  label="Confirm Password"
-                  placeholder="Re-enter password"
-                  value={form.confirmPassword}
-                  onChangeText={v => setField('confirmPassword', v)}
-                  error={errors.confirmPassword}
-                  secureTextEntry
-                  returnKeyType="done"
-                  onSubmitEditing={handleSave}
                 />
               </View>
             </>

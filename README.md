@@ -2,6 +2,18 @@ This is a new [**React Native**](https://reactnative.dev) project, bootstrapped 
 
 # Getting Started
 
+## Local Rent Management API
+
+The app uses the sibling `../rent-management-api` project at `http://localhost:3000/api/v1`.
+Start it in a separate terminal with `npm run api:start` (its database and `.env` must be configured).
+
+For Android, connect the device through ADB and run `npm run api:connect` before reloading the app.
+This forwards the phone's port 3000 to your Mac. Repeat after reconnecting the device or restarting ADB.
+If `adb` is not on your PATH, use `$HOME/Library/Android/sdk/platform-tools/adb reverse tcp:3000 tcp:3000`.
+iOS Simulator can access the API through localhost directly.
+
+Check the server with `curl http://localhost:3000/health`.
+
 > **Note**: Make sure you have completed the [Set Up Your Environment](https://reactnative.dev/docs/set-up-your-environment) guide before proceeding.
 
 ## Step 1: Start Metro

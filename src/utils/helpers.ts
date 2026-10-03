@@ -80,6 +80,8 @@ export function getStatusColors(status: RentStatus): {
       return { background: Colors.successLight, text: Colors.statusPaid };
     case 'Overdue':
       return { background: Colors.errorLight, text: Colors.statusOverdue };
+    case 'Carried Forward':
+      return { background: Colors.infoLight, text: Colors.info };
     case 'Pending':
     default:
       return { background: Colors.warningLight, text: Colors.statusPending };

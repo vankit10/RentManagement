@@ -7,7 +7,7 @@
 export type UserRole = 'tenant' | 'owner';
 
 // ── Payment / Rent Status ─────────────────────────────────────────────────────
-export type RentStatus = 'Paid' | 'Pending' | 'Overdue';
+export type RentStatus = 'Paid' | 'Pending' | 'Overdue' | 'Carried Forward';
 
 // ── Notification Types ────────────────────────────────────────────────────────
 export type NotificationType =
@@ -19,6 +19,15 @@ export type NotificationType =
 
 // ── Tenant Status ─────────────────────────────────────────────────────────────
 export type TenantStatus = 'active' | 'inactive';
+
+export type AccessRequestStatus = 'pending' | 'accepted' | 'rejected';
+
+export interface AccessRequest {
+  id: string;
+  status: AccessRequestStatus;
+  createdAt: string;
+  tenant: Pick<Tenant, 'id' | 'name' | 'email' | 'phone'>;
+}
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Database Row Interfaces (match Supabase table columns exactly)
@@ -46,6 +55,7 @@ export interface UserProfile {
 export interface Tenant {
   id: string;               // UUID
   user_id: string;          // references profiles.id  (empty string until first login)
+  owner_id?: string;        // owner assigned to this tenant
   name: string;
   email?: string;
   phone: string;            // primary identifier
@@ -77,6 +87,10 @@ export interface RentRecord {
   tenant_id: string;
   month: string;            // YYYY-MM
   amount: number;
+  base_amount?: number;
+  carried_forward_amount?: number;
+  amount_paid?: number;
+  balance?: number;
   due_date: string;         // ISO date YYYY-MM-DD
   paid_date?: string | null;
   status: RentStatus;
@@ -225,6 +239,7 @@ export type OwnerStackParamList = {
   RecordPayment: { tenantId: string };
   AddMeterReading: { tenantId: string };
   SendNotification: { tenantId?: string };
+  AccessRequests: undefined;
 };
 
 // ─────────────────────────────────────────────────────────────────────────────

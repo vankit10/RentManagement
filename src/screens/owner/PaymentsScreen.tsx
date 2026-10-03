@@ -177,14 +177,14 @@ export default function OwnerPaymentsScreen() {
     const name = tenant?.name ?? 'this tenant';
     Alert.alert(
       'Mark as Paid',
-      `Record ${formatMonth(record.month + '-01')} rent of ${formatCurrency(record.amount)} for ${name} as paid today?`,
+      `Record the remaining ${formatCurrency(record.balance ?? record.amount)} for ${formatMonth(record.month + '-01')} as paid today?`,
       [
         { text: 'Cancel', style: 'cancel' },
         {
           text: 'Mark Paid',
           onPress: async () => {
             try {
-              await recordPayment(record.id);
+              await recordPayment(record.id, record.tenant_id, record.balance ?? record.amount);
               setRecords(prev =>
                 prev.map(r =>
                   r.id === record.id

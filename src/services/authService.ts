@@ -11,8 +11,8 @@
  *   Tokens are stored in AsyncStorage via tokenStorage.ts.
  *   On app launch AuthContext calls restoreSession() to reload the user.
  */
-import api from './apiClient';
-import { saveTokens, clearTokens, saveUser, getStoredUser, getRefreshToken } from './tokenStorage';
+import api, { ApiError } from './apiClient';
+import { saveTokens, clearTokens, saveUser, getStoredUser, getRefreshToken, getAccessToken } from './tokenStorage';
 import type { AuthUser } from '../types';
 
 // ─── API response shapes ──────────────────────────────────────────────────────
@@ -62,6 +62,39 @@ export function normalizeAuthResponse(payload: unknown): LoginResponse {
   }
 
   throw new Error('Invalid login response from server.');
+}
+
+// ─── Register ─────────────────────────────────────────────────────────────────
+
+export async function registerUser(data: {
+  name: string;
+  email: string;
+  phone: string;
+  password: string;
+  role: 'tenant' | 'owner';
+}): Promise<AuthUser> {
+  const response = normalizeAuthResponse(
+    await api.post<unknown>('/auth/register', data),
+  );
+
+  await saveTokens(response.accessToken, response.refreshToken);
+
+  const authUser: AuthUser = {
+    id: response.user.id,
+    email: response.user.email,
+    phone: response.user.phone,
+    profile: {
+      id: response.user.id,
+      name: response.user.name,
+      email: response.user.email ?? undefined,
+      phone: response.user.phone ?? '',
+      role: response.user.role === 'OWNER' || response.user.role === 'owner' ? 'owner' : 'tenant',
+      created_at: new Date().toISOString(),
+    },
+  };
+
+  await saveUser(authUser);
+  return authUser;
 }
 
 // ─── Login ────────────────────────────────────────────────────────────────────
@@ -134,6 +167,10 @@ export async function logout(): Promise<void> {
  * Returns the stored user if a valid session exists, null otherwise.
  */
 export async function restoreSession(): Promise<AuthUser | null> {
+  const accessToken = await getAccessToken();
+  const refreshToken = await getRefreshToken();
+  if (!accessToken && !refreshToken) { return null; }
+
   try {
     // Try fetching /auth/me — apiClient auto-refreshes token if needed
     const data = await api.get<{
@@ -161,10 +198,15 @@ export async function restoreSession(): Promise<AuthUser | null> {
 
     await saveUser(authUser);
     return authUser;
-  } catch {
-    // Token invalid or expired and refresh failed — clear storage
-    await clearTokens();
-    return null;
+  } catch (error) {
+    if (error instanceof ApiError && error.statusCode === 401) {
+      await clearTokens();
+      return null;
+    }
+    // Keep the saved session when the local API is temporarily unavailable.
+    const storedUser = await getStoredUser();
+    if (storedUser) { return storedUser; }
+    throw error;
   }
 }
 

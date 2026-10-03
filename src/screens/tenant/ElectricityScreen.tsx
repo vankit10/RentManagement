@@ -13,8 +13,9 @@ import Icon from 'react-native-vector-icons/MaterialCommunityIcons';
 
 import { Colors, FontSize, FontWeight, Radius, Spacing } from '../../constants';
 import EmptyState from '../../components/EmptyState';
+import NoOwnerBanner from '../../components/NoOwnerBanner';
 import { useAuth } from '../../context/AuthContext';
-import { getTenantByUserId, getMeterReadings } from '../../services/tenantService';
+import { getMyMeterReadings, getTenantByUserId } from '../../services/tenantService';
 import { formatCurrency, formatDate } from '../../utils/helpers';
 import { getSupabaseErrorMessage } from '../../utils/supabaseErrors';
 import type { MeterReading, Tenant } from '../../types';
@@ -153,7 +154,7 @@ export default function TenantElectricityScreen() {
       const t = tenant ?? (await getTenantByUserId(uid));
       if (!tenant) { setTenant(t); }
       if (t) {
-        const recs = await getMeterReadings(t.id);
+        const recs = await getMyMeterReadings();
         setReadings(recs);
       }
     } catch (err) {
@@ -197,6 +198,8 @@ export default function TenantElectricityScreen() {
         <View style={styles.loadingContainer}>
           <Text style={styles.loadingText}>Loading electricity history…</Text>
         </View>
+      ) : !tenant && !loadError ? (
+        <NoOwnerBanner />
       ) : (
         <>
           {/* Error banner */}

@@ -3,6 +3,8 @@
   "version": "0.0.1",
   "private": true,
   "scripts": {
+    "api:start": "npm --prefix ../rent-management-api run dev",
+    "api:connect": "adb reverse tcp:3000 tcp:3000",
     "android": "react-native run-android",
     "ios": "react-native run-ios",
     "lint": "eslint .",

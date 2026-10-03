@@ -14,8 +14,9 @@ import Icon from 'react-native-vector-icons/MaterialCommunityIcons';
 import { Colors, FontSize, FontWeight, Radius, Spacing } from '../../constants';
 import StatusBadge from '../../components/StatusBadge';
 import EmptyState from '../../components/EmptyState';
+import NoOwnerBanner from '../../components/NoOwnerBanner';
 import { useAuth } from '../../context/AuthContext';
-import { getTenantByUserId, getRentRecords } from '../../services/tenantService';
+import { getMyRentRecords, getTenantByUserId } from '../../services/tenantService';
 import { formatCurrency, formatDate, formatMonth } from '../../utils/helpers';
 import { getSupabaseErrorMessage } from '../../utils/supabaseErrors';
 import type { RentRecord, Tenant } from '../../types';
@@ -37,9 +38,23 @@ function RentRow({ item }: { item: RentRecord }) {
 
       {/* Amount */}
       <View style={rowStyles.row}>
-        <Text style={rowStyles.label}>Rent Amount</Text>
+        <Text style={rowStyles.label}>Total Due</Text>
         <Text style={rowStyles.amount}>{formatCurrency(item.amount)}</Text>
       </View>
+
+      {!!item.carried_forward_amount && (
+        <View style={rowStyles.row}>
+          <Text style={rowStyles.label}>Previous Balance</Text>
+          <Text style={rowStyles.value}>{formatCurrency(item.carried_forward_amount)}</Text>
+        </View>
+      )}
+
+      {item.status !== 'Paid' && item.status !== 'Carried Forward' && (
+        <View style={rowStyles.row}>
+          <Text style={rowStyles.label}>Balance Due</Text>
+          <Text style={rowStyles.amount}>{formatCurrency(item.balance ?? item.amount)}</Text>
+        </View>
+      )}
 
       {/* Due date */}
       <View style={rowStyles.row}>
@@ -123,7 +138,7 @@ export default function TenantRentScreen() {
       const t = tenant ?? (await getTenantByUserId(uid));
       if (!tenant) { setTenant(t); }
       if (t) {
-        const recs = await getRentRecords(t.id);
+        const recs = await getMyRentRecords();
         setRecords(recs);
       }
     } catch (err) {
@@ -180,6 +195,8 @@ export default function TenantRentScreen() {
         <View style={styles.loadingContainer}>
           <Text style={styles.loadingText}>Loading rent history…</Text>
         </View>
+      ) : !tenant && !loadError ? (
+        <NoOwnerBanner />
       ) : (
         <>
           {/* Error banner */}

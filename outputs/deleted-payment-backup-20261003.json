@@ -1,0 +1,8 @@
+{
+  "tenantId": "cmus04d0r0005shp3r4q5b5ri",
+  "tenantName": "Satyam Singh",
+  "payments": [
+    {"id":"cmus17jx30003shwfgx24rd3c","rentRecordId":"cmus17jur0001shwf5ckfxm1o","amount":"9000","paymentDate":"2026-03-10T00:00:00.000Z","createdAt":"2026-10-03T06:49:25.143Z"},
+    {"id":"cmus1enmx0009shwfdottiex6","rentRecordId":"cmus1enjq0007shwffa2wzph2","amount":"15000","paymentDate":"2026-10-03T00:00:00.000Z","createdAt":"2026-10-03T06:54:56.554Z"}
+  ]
+}

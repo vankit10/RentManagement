@@ -17,8 +17,8 @@ import { getAccessToken, getRefreshToken, saveTokens, clearTokens } from './toke
 
 // ─── Config ───────────────────────────────────────────────────────────────────
 
-// For local dev: your Mac's IP address so physical devices can reach it.
-// Android emulator uses 10.0.2.2, iOS simulator can use localhost.
+// Android devices use `adb reverse tcp:3000 tcp:3000` to reach the Mac.
+// iOS simulator can use localhost directly.
 const BASE_URL = 'http://localhost:3000/api/v1';
 const TIMEOUT_MS = 15000;
 
@@ -72,8 +72,11 @@ async function refreshAccessToken(): Promise<string | null> {
     });
 
     if (!res.ok) {
-      await clearTokens();
-      return null;
+      if (res.status === 401 || res.status === 403) {
+        await clearTokens();
+        return null;
+      }
+      throw new ApiError(res.status, 'REFRESH_FAILED', 'Could not refresh your session. Please try again.');
     }
 
     const json = await res.json() as { success: boolean; data: { accessToken: string; refreshToken: string } };
@@ -81,9 +84,8 @@ async function refreshAccessToken(): Promise<string | null> {
 
     await saveTokens(json.data.accessToken, json.data.refreshToken);
     return json.data.accessToken;
-  } catch {
-    await clearTokens();
-    return null;
+  } catch (error) {
+    throw error;
   }
 }
 
@@ -134,7 +136,15 @@ async function request<T>(
     }
 
     _isRefreshing = true;
-    const newToken = await refreshAccessToken();
+    let newToken: string | null;
+    try {
+      newToken = await refreshAccessToken();
+    } catch (error) {
+      _isRefreshing = false;
+      _refreshQueue.forEach(cb => cb(null));
+      _refreshQueue = [];
+      throw error;
+    }
     _isRefreshing = false;
 
     // Flush the queue

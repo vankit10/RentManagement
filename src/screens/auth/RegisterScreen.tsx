@@ -20,6 +20,7 @@ import { registerUser } from '../../services/authService';
 import { isValidEmail, isValidPhone } from '../../utils/helpers';
 import { getFirebaseErrorMessage } from '../../utils/firebaseErrors';
 import { logButtonPress } from '../../utils/logger';
+import { useAuth } from '../../context/AuthContext';
 import type { AuthStackParamList } from '../../types';
 
 type Props = NativeStackScreenProps<AuthStackParamList, 'Register'>;
@@ -33,6 +34,7 @@ interface FormErrors {
 }
 
 export default function RegisterScreen({ navigation }: Props) {
+  const { setAuthUser } = useAuth();
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
   const [phone, setPhone] = useState('');
@@ -92,14 +94,14 @@ export default function RegisterScreen({ navigation }: Props) {
     if (!validate()) { return; }
     setIsLoading(true);
     try {
-      await registerUser({
+      const authUser = await registerUser({
         name: name.trim(),
         email: email.trim().toLowerCase(),
         phone: phone.trim(),
         password,
         role,
       });
-      // AuthContext will pick up the new user and route to TenantApp or OwnerApp automatically
+      setAuthUser(authUser);
       Toast.show({
         type: 'success',
         text1: 'Account Created',

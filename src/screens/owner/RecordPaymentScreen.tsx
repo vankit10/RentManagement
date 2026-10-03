@@ -14,7 +14,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import Icon from 'react-native-vector-icons/MaterialCommunityIcons';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import Toast from 'react-native-toast-message';
-import { format, subMonths, addMonths } from 'date-fns';
+import { format, addMonths, isAfter, startOfMonth } from 'date-fns';
 
 import { Colors, FontSize, FontWeight, Radius, Spacing } from '../../constants';
 import AuthInput from '../../components/AuthInput';
@@ -26,39 +26,40 @@ import {
   getRentRecordsForTenant,
   toMonthKey,
 } from '../../services/rentService';
+import { getReadingForMonth } from '../../services/electricityService';
 import { getTenantById } from '../../services/tenantService';
 import { formatCurrency, formatDate, formatMonth } from '../../utils/helpers';
 import { getSupabaseErrorMessage } from '../../utils/supabaseErrors';
 import { logButtonPress } from '../../utils/logger';
-import type { OwnerStackParamList, RentRecord, Tenant } from '../../types';
+import type { MeterReading, OwnerStackParamList, RentRecord, Tenant } from '../../types';
 
 type Props = NativeStackScreenProps<OwnerStackParamList, 'RecordPayment'>;
 
-// Generate last 6 months + current month options
-function getMonthOptions(): { label: string; value: string }[] {
-  const options = [];
-  for (let i = 5; i >= 0; i--) {
-    const date = subMonths(new Date(), i);
+// Allow a payment to be assigned to any month of the tenancy, not only a
+// fixed recent window. A future month is kept for advance payments.
+function getMonthOptions(joiningDate?: string): { label: string; value: string }[] {
+  const currentMonth = startOfMonth(new Date());
+  const tenancyStart = joiningDate ? startOfMonth(new Date(joiningDate)) : currentMonth;
+  const firstMonth = isAfter(tenancyStart, currentMonth) ? currentMonth : tenancyStart;
+  const lastMonth = addMonths(currentMonth, 1);
+  const options: { label: string; value: string }[] = [];
+
+  for (let date = firstMonth; !isAfter(date, lastMonth); date = addMonths(date, 1)) {
     options.push({
       label: format(date, 'MMMM yyyy'),
       value: format(date, 'yyyy-MM'),
     });
   }
-  // Add next month too
-  options.push({
-    label: format(addMonths(new Date(), 1), 'MMMM yyyy'),
-    value: format(addMonths(new Date(), 1), 'yyyy-MM'),
-  });
+
   return options;
 }
-
-const MONTH_OPTIONS = getMonthOptions();
 
 export default function RecordPaymentScreen({ route, navigation }: Props) {
   const { tenantId } = route.params;
 
   const [tenant, setTenant] = useState<Tenant | null>(null);
   const [existingRecords, setExistingRecords] = useState<RentRecord[]>([]);
+  const [meterReading, setMeterReading] = useState<MeterReading | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
@@ -94,6 +95,39 @@ export default function RecordPaymentScreen({ route, navigation }: Props) {
 
   // ── Find existing record for selected month ───────────────────────────────
   const existingForMonth = existingRecords.find(r => r.month === selectedMonth);
+  const carriedForwardBalance = existingForMonth?.carried_forward_amount ?? 0;
+  const earlierOutstandingBalance = existingRecords
+    .filter(record => record.month < selectedMonth
+      && (record.status === 'Pending' || record.status === 'Overdue'))
+    .reduce((total, record) => total + (record.balance ?? record.amount), 0);
+  const previousPendingBalance = existingForMonth
+    ? carriedForwardBalance : earlierOutstandingBalance;
+  const monthlyRent = existingForMonth?.base_amount ?? tenant?.rent_amount ?? 0;
+  const electricityAmount = meterReading?.amount ?? 0;
+  const totalPayable = existingForMonth?.amount
+    ?? monthlyRent + previousPendingBalance + electricityAmount;
+  const amountAlreadyPaid = existingForMonth?.amount_paid ?? 0;
+  const remainingBalance = Math.max(0, totalPayable - amountAlreadyPaid);
+  const enteredPayment = Number(amountStr) || 0;
+  const balanceAfterPayment = Math.max(0, remainingBalance - enteredPayment);
+
+  // ── Load the selected month's electricity bill ───────────────────────────
+  useEffect(() => {
+    let cancelled = false;
+    getReadingForMonth(tenantId, selectedMonth)
+      .then(reading => { if (!cancelled) { setMeterReading(reading); } })
+      .catch(err => {
+        console.warn('[RecordPayment] meter reading load error:', err);
+        if (!cancelled) { setMeterReading(null); }
+      });
+    return () => { cancelled = true; };
+  }, [tenantId, selectedMonth]);
+
+  // A partial payment should default to the outstanding balance, never the
+  // original monthly rent. This also shows a carried-forward balance clearly.
+  useEffect(() => {
+    setAmountStr(String(remainingBalance));
+  }, [selectedMonth, remainingBalance]);
 
   // ── Validate ──────────────────────────────────────────────────────────────
   function validate(): boolean {
@@ -139,7 +173,7 @@ export default function RecordPaymentScreen({ route, navigation }: Props) {
         });
       }
 
-      await recordPayment(rentRecordId, paidDate);
+      await recordPayment(rentRecordId, tenantId, Number(amountStr), paidDate);
 
       Toast.show({
         type: 'success',
@@ -205,6 +239,7 @@ export default function RecordPaymentScreen({ route, navigation }: Props) {
 
   const initials = (tenant?.name ?? '')
     .split(' ').map(w => w[0]?.toUpperCase() ?? '').slice(0, 2).join('');
+  const monthOptions = getMonthOptions(tenant?.joining_date);
 
   return (
     <SafeAreaView style={styles.safe} edges={['top']}>
@@ -251,7 +286,7 @@ export default function RecordPaymentScreen({ route, navigation }: Props) {
           {/* ── Month selector ───────────────────────── */}
           <Text style={styles.groupLabel}>SELECT MONTH</Text>
           <View style={styles.monthGrid}>
-            {MONTH_OPTIONS.map(opt => {
+            {monthOptions.map(opt => {
               const rec = existingRecords.find(r => r.month === opt.value);
               const isSelected = selectedMonth === opt.value;
               return (
@@ -302,11 +337,78 @@ export default function RecordPaymentScreen({ route, navigation }: Props) {
             <View style={styles.existingBanner}>
               <Icon name="information-outline" size={16} color={Colors.info} />
               <Text style={styles.existingBannerText}>
-                A {existingForMonth.status} record exists for this month.
-                Submitting will mark it as Paid.
+                {existingForMonth.carried_forward_amount
+                  ? `Includes ${formatCurrency(existingForMonth.carried_forward_amount)} carried forward from previous months. `
+                  : ''}
+                Outstanding balance: {formatCurrency(existingForMonth.balance ?? existingForMonth.amount)}.
+                You can record a full or partial payment.
               </Text>
             </View>
           )}
+
+          {/* ── Charges for selected month ───────────── */}
+          <Text style={styles.groupLabel}>MONTHLY CHARGES</Text>
+          <View style={styles.card}>
+            <View style={styles.chargeRow}>
+              <View style={styles.chargeIcon}>
+                <Icon name="home-outline" size={18} color={Colors.primary} />
+              </View>
+              <View style={styles.chargeInfo}>
+                <Text style={styles.chargeTitle}>Monthly Rent</Text>
+                <Text style={styles.chargeMeta}>{formatMonth(selectedMonth + '-01')}</Text>
+              </View>
+              <Text style={styles.chargeAmount}>{formatCurrency(monthlyRent)}</Text>
+            </View>
+            <View style={styles.rowDivider} />
+            <View style={styles.chargeRow}>
+              <View style={styles.chargeIcon}>
+                <Icon name="history" size={18} color={Colors.error} />
+              </View>
+              <View style={styles.chargeInfo}>
+                <Text style={styles.chargeTitle}>Previous Pending Rent</Text>
+                <Text style={styles.chargeMeta}>Unpaid rent from earlier months</Text>
+              </View>
+              <Text style={[styles.chargeAmount, previousPendingBalance > 0 && styles.pendingAmount]}>
+                {formatCurrency(previousPendingBalance)}
+              </Text>
+            </View>
+            <View style={styles.rowDivider} />
+            <View style={styles.chargeRow}>
+              <View style={styles.chargeIcon}>
+                <Icon name="lightning-bolt-outline" size={18} color={Colors.warning} />
+              </View>
+              <View style={styles.chargeInfo}>
+                <Text style={styles.chargeTitle}>Electricity Bill</Text>
+                {meterReading ? (
+                  <Text style={styles.chargeMeta}>
+                    {meterReading.previous_reading} → {meterReading.current_reading} units · {meterReading.units_consumed} units used
+                  </Text>
+                ) : (
+                  <Text style={styles.chargeMeta}>No meter reading saved for this month</Text>
+                )}
+              </View>
+              <Text style={styles.chargeAmount}>
+                {meterReading ? formatCurrency(electricityAmount) : '—'}
+              </Text>
+            </View>
+            <View style={styles.rowDivider} />
+            <View style={styles.totalChargeRow}>
+              <Text style={styles.totalChargeLabel}>Total Payable</Text>
+              <Text style={styles.totalChargeAmount}>{formatCurrency(totalPayable)}</Text>
+            </View>
+            <View style={styles.totalChargeRow}>
+              <Text style={styles.balanceAfterLabel}>Already Paid This Month</Text>
+              <Text style={styles.chargeAmount}>{formatCurrency(amountAlreadyPaid)}</Text>
+            </View>
+            <View style={styles.totalChargeRow}>
+              <Text style={styles.balanceAfterLabel}>Remaining Balance</Text>
+              <Text style={styles.balanceAfterAmount}>{formatCurrency(remainingBalance)}</Text>
+            </View>
+            <View style={styles.totalChargeRow}>
+              <Text style={styles.balanceAfterLabel}>Pending After Payment</Text>
+              <Text style={styles.balanceAfterAmount}>{formatCurrency(balanceAfterPayment)}</Text>
+            </View>
+          </View>
 
           {/* ── Payment details ──────────────────────── */}
           <Text style={styles.groupLabel}>PAYMENT DETAILS</Text>
@@ -398,9 +500,17 @@ export default function RecordPaymentScreen({ route, navigation }: Props) {
                         </Text>
                       </View>
                       <View style={styles.histRight}>
-                        <Text style={styles.histAmount}>
-                          {formatCurrency(rec.amount)}
+                        <Text style={styles.histInvoice}>
+                          Bill {formatCurrency(rec.amount)}
                         </Text>
+                        <Text style={styles.histAmount}>
+                          Paid {formatCurrency(rec.amount_paid ?? 0)}
+                        </Text>
+                        {(rec.balance ?? 0) > 0 && (
+                          <Text style={styles.histBalance}>
+                            Due {formatCurrency(rec.balance ?? 0)}
+                          </Text>
+                        )}
                         <StatusBadge status={rec.status} />
                       </View>
                     </View>
@@ -558,6 +668,20 @@ const styles = StyleSheet.create({
     }),
   },
 
+  // Selected-month charges
+  chargeRow: { flexDirection: 'row', alignItems: 'center', gap: Spacing.sm, paddingVertical: Spacing.xs },
+  chargeIcon: { width: 32, height: 32, borderRadius: 16, backgroundColor: Colors.surfaceSecondary, alignItems: 'center', justifyContent: 'center' },
+  chargeInfo: { flex: 1 },
+  chargeTitle: { fontSize: FontSize.sm, fontWeight: FontWeight.semiBold, color: Colors.textPrimary },
+  chargeMeta: { fontSize: FontSize.xs, color: Colors.textMuted, marginTop: 2 },
+  chargeAmount: { fontSize: FontSize.base, fontWeight: FontWeight.bold, color: Colors.textPrimary },
+  pendingAmount: { color: Colors.error },
+  totalChargeRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingTop: Spacing.md },
+  totalChargeLabel: { fontSize: FontSize.md, fontWeight: FontWeight.bold, color: Colors.textPrimary },
+  totalChargeAmount: { fontSize: FontSize.lg, fontWeight: FontWeight.bold, color: Colors.primary },
+  balanceAfterLabel: { fontSize: FontSize.sm, fontWeight: FontWeight.semiBold, color: Colors.textSecondary },
+  balanceAfterAmount: { fontSize: FontSize.md, fontWeight: FontWeight.bold, color: Colors.error },
+
   // Summary row inside card
   summaryRow: {
     flexDirection: 'row',
@@ -608,7 +732,9 @@ const styles = StyleSheet.create({
   histMonth: { fontSize: FontSize.base, fontWeight: FontWeight.medium, color: Colors.textPrimary },
   histDate: { fontSize: FontSize.xs, color: Colors.textMuted, marginTop: 2 },
   histRight: { alignItems: 'flex-end', gap: 4 },
+  histInvoice: { fontSize: FontSize.xs, color: Colors.textMuted },
   histAmount: { fontSize: FontSize.base, fontWeight: FontWeight.bold, color: Colors.primary },
+  histBalance: { fontSize: FontSize.xs, fontWeight: FontWeight.semiBold, color: Colors.error },
   rowDivider: { height: 1, backgroundColor: Colors.divider },
 
   loadingContainer: { flex: 1, alignItems: 'center', justifyContent: 'center' },

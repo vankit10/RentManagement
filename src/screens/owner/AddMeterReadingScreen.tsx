@@ -15,7 +15,7 @@
  *   Units = Current − Previous
  *   Bill  = Units × Rate
  */
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   View,
   Text,
@@ -31,16 +31,16 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import Icon from 'react-native-vector-icons/MaterialCommunityIcons';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import Toast from 'react-native-toast-message';
-import { format, subMonths } from 'date-fns';
+import { addMonths, format, isAfter, parseISO, startOfMonth } from 'date-fns';
 
 import { Colors, FontSize, FontWeight, Radius, Spacing } from '../../constants';
 import AuthInput from '../../components/AuthInput';
 import DatePickerInput from '../../components/DatePickerInput';
 import {
   getLatestReadingBeforeMonth,
+  getReadingForMonth,
   addMeterReading,
   calculateElectricityBill,
-  readingExistsForMonth,
 } from '../../services/electricityService';
 import { getTenantById } from '../../services/tenantService';
 import { formatCurrency, formatDate } from '../../utils/helpers';
@@ -52,12 +52,18 @@ type Props = NativeStackScreenProps<OwnerStackParamList, 'AddMeterReading'>;
 
 const DEFAULT_RATE = '8';
 
-// Build a list of the last 12 months for the month picker
-function buildMonthOptions(): { label: string; value: string }[] {
+// Build a list from the tenant's joining month through the current month.
+function buildMonthOptions(joiningDate?: string): { label: string; value: string }[] {
   const options = [];
-  const now = new Date();
-  for (let i = 0; i < 12; i++) {
-    const d = subMonths(now, i);
+  const currentMonth = startOfMonth(new Date());
+  const joiningMonth = joiningDate ? startOfMonth(parseISO(joiningDate)) : currentMonth;
+
+  // A future joining date should not offer future billing months.
+  if (isAfter(joiningMonth, currentMonth)) {
+    return [{ label: format(currentMonth, 'MMMM yyyy'), value: format(currentMonth, 'yyyy-MM') }];
+  }
+
+  for (let d = joiningMonth; !isAfter(d, currentMonth); d = addMonths(d, 1)) {
     options.push({
       label: format(d, 'MMMM yyyy'),
       value: format(d, 'yyyy-MM'),
@@ -66,18 +72,19 @@ function buildMonthOptions(): { label: string; value: string }[] {
   return options;
 }
 
-const MONTH_OPTIONS = buildMonthOptions();
+const CURRENT_MONTH = format(new Date(), 'yyyy-MM');
 
 export default function AddMeterReadingScreen({ route, navigation }: Props) {
   const { tenantId } = route.params;
 
   const [tenant, setTenant] = useState<Tenant | null>(null);
   const [lastReading, setLastReading] = useState<MeterReading | null>(null);
+  const [selectedReading, setSelectedReading] = useState<MeterReading | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
 
   // Form fields
-  const [selectedMonth, setSelectedMonth] = useState(MONTH_OPTIONS[0].value); // default: current month
+  const [selectedMonth, setSelectedMonth] = useState(CURRENT_MONTH); // default: current month
   const [showMonthPicker, setShowMonthPicker] = useState(false);
   const [previousStr, setPreviousStr] = useState('');
   const [currentStr, setCurrentStr] = useState('');
@@ -89,30 +96,42 @@ export default function AddMeterReadingScreen({ route, navigation }: Props) {
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [monthAlreadyExists, setMonthAlreadyExists] = useState(false);
 
-  // ── Load tenant + last reading ────────────────────────────────────────────
+  const monthOptions = useMemo(
+    () => buildMonthOptions(tenant?.joining_date),
+    [tenant?.joining_date],
+  );
+
+  // ── Load the selected month's record and its preceding reading ────────────
   useEffect(() => {
+    let cancelled = false;
     Promise.all([
       getTenantById(tenantId),
       getLatestReadingBeforeMonth(tenantId, selectedMonth),
+      getReadingForMonth(tenantId, selectedMonth),
     ])
-      .then(([t, last]) => {
+      .then(([t, last, existing]) => {
+        if (cancelled) { return; }
         setTenant(t);
         setLastReading(last);
-        // Auto-fill from the last reading before the selected month.
-        setPreviousStr(last ? String(last.current_reading) : '');
+        setSelectedReading(existing);
+        setMonthAlreadyExists(existing !== null);
+
+        if (existing) {
+          // Selecting an already-saved month is a detail view, so show exactly
+          // what was saved rather than overwriting it with a previous month.
+          setPreviousStr(String(existing.previous_reading));
+          setCurrentStr(String(existing.current_reading));
+          setRateStr(String(existing.rate));
+          setReadingDate(existing.reading_date.slice(0, 10));
+        } else {
+          // For a new month, carry forward the most recent earlier reading.
+          setPreviousStr(last ? String(last.current_reading) : '');
+          setCurrentStr('');
+          setErrors({});
+        }
       })
       .catch(err => console.warn('[AddMeterReading] load error:', err))
       .finally(() => setIsLoading(false));
-  }, [tenantId, selectedMonth]);
-
-  // ── Check duplicate when month changes ───────────────────────────────────
-  useEffect(() => {
-    let cancelled = false;
-    readingExistsForMonth(tenantId, selectedMonth)
-      .then(exists => {
-        if (!cancelled) { setMonthAlreadyExists(exists); }
-      })
-      .catch(() => { /* silent */ });
     return () => { cancelled = true; };
   }, [tenantId, selectedMonth]);
 
@@ -217,7 +236,7 @@ export default function AddMeterReadingScreen({ route, navigation }: Props) {
   }
 
   const selectedMonthLabel =
-    MONTH_OPTIONS.find(m => m.value === selectedMonth)?.label ?? selectedMonth;
+    monthOptions.find(m => m.value === selectedMonth)?.label ?? selectedMonth;
   const initials = (tenant?.name ?? '')
     .split(' ')
     .map(w => w[0]?.toUpperCase() ?? '')
@@ -295,12 +314,12 @@ export default function AddMeterReadingScreen({ route, navigation }: Props) {
               />
             </TouchableOpacity>
 
-            {/* Duplicate warning */}
+            {/* Existing-reading detail notice */}
             {monthAlreadyExists && (
               <View style={styles.dupWarning}>
-                <Icon name="alert-outline" size={14} color={Colors.warning} />
+                <Icon name="information-outline" size={14} color={Colors.warning} />
                 <Text style={styles.dupWarningText}>
-                  A reading for {selectedMonthLabel} already exists. Choose a different month.
+                  Showing the saved reading for {selectedMonthLabel}. Select a different month to add a new reading.
                 </Text>
               </View>
             )}
@@ -308,7 +327,7 @@ export default function AddMeterReadingScreen({ route, navigation }: Props) {
             {/* Month picker dropdown */}
             {showMonthPicker && (
               <View style={styles.monthList}>
-                {MONTH_OPTIONS.map(opt => (
+                {monthOptions.map(opt => (
                   <TouchableOpacity
                     key={opt.value}
                     style={[
@@ -348,6 +367,7 @@ export default function AddMeterReadingScreen({ route, navigation }: Props) {
               error={errors.previous}
               keyboardType="numeric"
               returnKeyType="next"
+              editable={!selectedReading}
             />
             <AuthInput
               label="Current Reading (units)"
@@ -357,6 +377,7 @@ export default function AddMeterReadingScreen({ route, navigation }: Props) {
               error={errors.current}
               keyboardType="numeric"
               returnKeyType="next"
+              editable={!selectedReading}
             />
             {calcReady && Number(currentStr) < Number(previousStr) && (
               <View style={styles.validationError}>
@@ -379,6 +400,7 @@ export default function AddMeterReadingScreen({ route, navigation }: Props) {
               error={errors.rate}
               keyboardType="numeric"
               returnKeyType="next"
+              editable={!selectedReading}
             />
             <DatePickerInput
               label="Reading Date"

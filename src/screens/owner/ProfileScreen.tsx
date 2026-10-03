@@ -1,5 +1,7 @@
 import React, { useState } from 'react';
 import { Alert, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { useNavigation } from '@react-navigation/native';
+import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import Icon from 'react-native-vector-icons/MaterialCommunityIcons';
 
@@ -7,8 +9,10 @@ import AuthInput from '../../components/AuthInput';
 import { Colors, FontSize, FontWeight, Radius, Spacing } from '../../constants';
 import { useAuth } from '../../context/AuthContext';
 import { getSupabaseErrorMessage } from '../../utils/supabaseErrors';
+import type { OwnerStackParamList } from '../../types';
 
 export default function OwnerProfileScreen() {
+  const navigation = useNavigation<NativeStackNavigationProp<OwnerStackParamList>>();
   const { user, logout, updateProfile } = useAuth();
   const profile = user?.profile;
   const [name, setName] = useState(profile?.name ?? '');
@@ -45,6 +49,11 @@ export default function OwnerProfileScreen() {
             <Text style={styles.saveText}>{isSaving ? 'Saving…' : 'Save Changes'}</Text>
           </TouchableOpacity>
         </View>
+        <TouchableOpacity style={styles.requests} onPress={() => navigation.navigate('AccessRequests')} accessibilityLabel="Review tenant access requests">
+          <View style={styles.requestsIcon}><Icon name="email-receive-outline" size={22} color={Colors.primary} /></View>
+          <View style={styles.requestsText}><Text style={styles.requestsTitle}>Tenant Access Requests</Text><Text style={styles.requestsSub}>Accept or reject tenant requests</Text></View>
+          <Icon name="chevron-right" size={22} color={Colors.textMuted} />
+        </TouchableOpacity>
         <TouchableOpacity style={styles.logout} onPress={logout} accessibilityLabel="Sign out">
           <Icon name="logout" size={20} color={Colors.error} /><Text style={styles.logoutText}>Sign Out</Text>
         </TouchableOpacity>
@@ -64,6 +73,11 @@ const styles = StyleSheet.create({
   note: { color: Colors.textMuted, fontSize: FontSize.xs, lineHeight: 18, marginTop: -Spacing.sm, marginBottom: Spacing.base },
   save: { alignItems: 'center', backgroundColor: Colors.primary, borderRadius: Radius.sm, paddingVertical: Spacing.md },
   saveText: { color: Colors.textInverse, fontWeight: FontWeight.semiBold },
+  requests: { marginTop: Spacing.base, flexDirection: 'row', alignItems: 'center', backgroundColor: Colors.surface, borderRadius: Radius.md, padding: Spacing.base },
+  requestsIcon: { width: 42, height: 42, borderRadius: 21, backgroundColor: Colors.accentLight, alignItems: 'center', justifyContent: 'center' },
+  requestsText: { flex: 1, marginLeft: Spacing.md },
+  requestsTitle: { color: Colors.textPrimary, fontSize: FontSize.base, fontWeight: FontWeight.semiBold },
+  requestsSub: { color: Colors.textMuted, fontSize: FontSize.sm, marginTop: 2 },
   logout: { marginTop: Spacing.base, flexDirection: 'row', justifyContent: 'center', gap: Spacing.sm, backgroundColor: Colors.errorLight, borderRadius: Radius.md, paddingVertical: Spacing.md },
   logoutText: { color: Colors.error, fontWeight: FontWeight.semiBold },
 });

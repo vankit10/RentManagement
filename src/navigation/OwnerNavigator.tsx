@@ -19,6 +19,7 @@ import AddEditTenantScreen from '../screens/owner/AddEditTenantScreen';
 import RecordPaymentScreen from '../screens/owner/RecordPaymentScreen';
 import AddMeterReadingScreen from '../screens/owner/AddMeterReadingScreen';
 import SendNotificationScreen from '../screens/owner/SendNotificationScreen';
+import AccessRequestsScreen from '../screens/owner/AccessRequestsScreen';
 
 // ─── Owner bottom tabs ────────────────────────────────────────────────────────
 
@@ -92,6 +93,7 @@ export default function OwnerNavigator() {
       <Stack.Screen name="RecordPayment" component={RecordPaymentScreen} />
       <Stack.Screen name="AddMeterReading" component={AddMeterReadingScreen} />
       <Stack.Screen name="SendNotification" component={SendNotificationScreen} />
+      <Stack.Screen name="AccessRequests" component={AccessRequestsScreen} />
     </Stack.Navigator>
   );
 }

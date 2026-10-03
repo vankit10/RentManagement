@@ -7,11 +7,6 @@ import type { MeterReading, ElectricitySettings } from '../types';
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
-interface Paginated<T> {
-  data: T[];
-  pagination: { page: number; limit: number; total: number; totalPages: number };
-}
-
 // ─── Calculation (pure — no network) ─────────────────────────────────────────
 
 export function calculateElectricityBill(
@@ -49,24 +44,28 @@ export async function updateElectricityRate(ratePerUnit: number): Promise<void> 
 // ─── Read ─────────────────────────────────────────────────────────────────────
 
 export async function getAllMeterReadings(): Promise<MeterReading[]> {
-  const res = await api.get<Paginated<MeterReading>>('/electricity?limit=100');
-  return (res.data ?? []).map(mapReading);
+  // apiClient unwraps the API's { success, data, pagination } envelope, so
+  // list endpoints arrive here as the data array itself.
+  const readings = await api.get<Array<MeterReading & Record<string, unknown>>>(
+    '/electricity?limit=100',
+  );
+  return readings.map(mapReading);
 }
 
 export async function getMeterReadingsForTenant(tenantId: string): Promise<MeterReading[]> {
-  const res = await api.get<Paginated<MeterReading>>(
+  const readings = await api.get<Array<MeterReading & Record<string, unknown>>>(
     `/electricity?tenantId=${tenantId}&limit=100`,
   );
-  return (res.data ?? []).map(mapReading);
+  return readings.map(mapReading);
 }
 
 export async function getLatestReadingForTenant(
   tenantId: string,
 ): Promise<MeterReading | null> {
-  const res = await api.get<Paginated<MeterReading>>(
+  const readings = await api.get<Array<MeterReading & Record<string, unknown>>>(
     `/electricity?tenantId=${tenantId}&limit=1`,
   );
-  const item = res.data?.[0];
+  const item = readings[0];
   return item ? mapReading(item) : null;
 }
 
@@ -74,25 +73,24 @@ export async function getLatestReadingBeforeMonth(
   tenantId: string,
   month: string,
 ): Promise<MeterReading | null> {
-  const res = await api.get<Paginated<MeterReading>>(
+  const readings = await api.get<Array<MeterReading & Record<string, unknown>>>(
     `/electricity?tenantId=${tenantId}&limit=100`,
   );
-  const readings = (res.data ?? [])
+  const earlierReadings = readings
     .map(mapReading)
     .filter(r => r.month < month)
     .sort((a, b) => b.month.localeCompare(a.month));
-  return readings[0] ?? null;
+  return earlierReadings[0] ?? null;
 }
 
 export async function getReadingForMonth(
   tenantId: string,
   month: string,
 ): Promise<MeterReading | null> {
-  const res = await api.get<Paginated<MeterReading>>(
-    `/electricity?tenantId=${tenantId}&month=${month}&limit=1`,
+  const res = await api.get<{ reading: (MeterReading & Record<string, unknown>) | null }>(
+    `/electricity/tenant/${tenantId}/month/${month}`,
   );
-  const item = res.data?.[0];
-  return item ? mapReading(item) : null;
+  return res.reading ? mapReading(res.reading) : null;
 }
 
 export async function readingExistsForMonth(

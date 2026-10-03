@@ -3,12 +3,14 @@
  * All Supabase calls replaced with Node.js API calls via apiClient.
  */
 import api from './apiClient';
+import { normalizeRentList } from './rentService';
 import type {
   Tenant,
   RentRecord,
   MeterReading,
   AppNotification,
   DashboardStats,
+  AccessRequest,
 } from '../types';
 
 // ─── Pagination wrapper ───────────────────────────────────────────────────────
@@ -23,11 +25,28 @@ interface Paginated<T> {
 export async function getTenantByUserId(_userId: string): Promise<Tenant | null> {
   try {
     // Node.js API: GET /tenants/me/profile — returns the tenant for the logged-in user
-    const data = await api.get<Tenant>('/tenants/me/profile');
-    return data;
+    const data = await api.get<unknown>('/tenants/me/profile');
+    return normalizeTenant(data);
   } catch {
     return null;
   }
+}
+
+// ─── Property access requests ────────────────────────────────────────────────
+
+export async function createAccessRequest(ownerEmail: string): Promise<void> {
+  await api.post('/access-requests', { ownerEmail });
+}
+
+export async function getAccessRequests(): Promise<AccessRequest[]> {
+  return api.get<AccessRequest[]>('/access-requests');
+}
+
+export async function updateAccessRequest(
+  requestId: string,
+  status: 'ACCEPTED' | 'REJECTED',
+): Promise<AccessRequest> {
+  return api.patch<AccessRequest>(`/access-requests/${requestId}/status`, { status });
 }
 
 // ─── Owner CRUD ───────────────────────────────────────────────────────────────
@@ -63,14 +82,21 @@ function normalizeTenant(item: unknown): Tenant {
   return {
     id: String(tenant.id ?? ''),
     user_id: String((tenant.user_id ?? tenant.userId ?? '')),
+    owner_id: typeof (tenant.owner_id ?? tenant.ownerId) === 'string'
+      ? String(tenant.owner_id ?? tenant.ownerId)
+      : undefined,
     name: String(tenant.name ?? ''),
     email: typeof tenant.email === 'string' ? tenant.email : undefined,
     phone: String(tenant.phone ?? ''),
     room_number: String(tenant.room_number ?? tenant.roomNumber ?? ''),
     joining_date: String(tenant.joining_date ?? tenant.joiningDate ?? new Date().toISOString()),
     status: statusValue === 'inactive' ? 'inactive' : 'active',
-    rent_amount: tenant.rent_amount != null ? Number(tenant.rent_amount) : undefined,
-    due_day: tenant.due_day != null ? Number(tenant.due_day) : undefined,
+    rent_amount: tenant.rent_amount != null || tenant.rentAmount != null
+      ? Number(tenant.rent_amount ?? tenant.rentAmount)
+      : undefined,
+    due_day: tenant.due_day != null || tenant.dueDay != null
+      ? Number(tenant.due_day ?? tenant.dueDay)
+      : undefined,
     created_at: String(tenant.created_at ?? tenant.createdAt ?? new Date().toISOString()),
   };
 }
@@ -82,7 +108,7 @@ export async function getAllTenants(): Promise<Tenant[]> {
 
 export async function getTenantById(tenantId: string): Promise<Tenant | null> {
   try {
-    return await api.get<Tenant>(`/tenants/${tenantId}`);
+    return normalizeTenant(await api.get<unknown>(`/tenants/${tenantId}`));
   } catch {
     return null;
   }
@@ -96,7 +122,6 @@ export interface CreateTenantParams {
   rent_amount: number;
   due_day: number;
   email?: string;
-  password?: string;
 }
 
 export interface CreateTenantResult {
@@ -105,24 +130,28 @@ export interface CreateTenantResult {
   smsError?: string;
   authAccountCreated: boolean;
   authAccountError?: string;
+  defaultPasswordAssigned: boolean;
+  usedExistingAccount: boolean;
 }
 
 export async function createTenant(params: CreateTenantParams): Promise<CreateTenantResult> {
-  const tenant = await api.post<Tenant>('/tenants', {
-    name: params.name,
-    phone: params.phone,
-    email: params.email,
+  const result = await api.post<{ tenant: Tenant; defaultPasswordAssigned: boolean; usedExistingAccount: boolean }>('/tenants', {
+    name: params.name || undefined,
+    phone: params.phone || undefined,
+    email: params.email || undefined,
     unitId: undefined,
     joiningDate: params.joining_date,
-    rentAmount: params.rent_amount,
+    rentAmount: params.rent_amount > 0 ? params.rent_amount : undefined,
     dueDay: params.due_day,
   });
 
   return {
-    tenantId: tenant.id,
+    tenantId: result.tenant.id,
     smsSent: false,
-    authAccountCreated: true,
+    authAccountCreated: !result.usedExistingAccount,
     authAccountError: undefined,
+    defaultPasswordAssigned: result.defaultPasswordAssigned,
+    usedExistingAccount: result.usedExistingAccount,
   };
 }
 
@@ -155,17 +184,28 @@ export async function deactivateTenant(tenantId: string): Promise<void> {
 // ─── Rent records ─────────────────────────────────────────────────────────────
 
 export async function getRentRecords(tenantId: string): Promise<RentRecord[]> {
-  const res = await api.get<Paginated<RentRecord>>(
+  const records = await api.get<RentRecord[]>(
     `/rent?tenantId=${tenantId}&limit=100`,
   );
-  return res.data ?? [];
+  return records;
 }
 
 export async function getLatestRentRecord(tenantId: string): Promise<RentRecord | null> {
-  const res = await api.get<Paginated<RentRecord>>(
+  const records = await api.get<RentRecord[]>(
     `/rent?tenantId=${tenantId}&limit=1`,
   );
-  return res.data?.[0] ?? null;
+  return records[0] ?? null;
+}
+
+/** Tenant-safe endpoint — the API derives the tenant from the signed-in user. */
+export async function getMyRentRecords(): Promise<RentRecord[]> {
+  const records = await api.get<unknown[]>('/rent/my?limit=100');
+  return normalizeRentList(records);
+}
+
+export async function getMyLatestRentRecord(): Promise<RentRecord | null> {
+  const records = await api.get<unknown[]>('/rent/my?limit=1');
+  return normalizeRentList(records)[0] ?? null;
 }
 
 export async function getRentRecordsByTenant(tenantId: string): Promise<RentRecord[]> {
@@ -186,6 +226,16 @@ export async function getLatestMeterReading(tenantId: string): Promise<MeterRead
     `/electricity?tenantId=${tenantId}&limit=1`,
   );
   return res.data?.[0] ?? null;
+}
+
+/** Tenant-safe endpoint — the API derives the tenant from the signed-in user. */
+export async function getMyMeterReadings(): Promise<MeterReading[]> {
+  return api.get<MeterReading[]>('/electricity/my?limit=100');
+}
+
+export async function getMyLatestMeterReading(): Promise<MeterReading | null> {
+  const readings = await api.get<MeterReading[]>('/electricity/my?limit=1');
+  return readings[0] ?? null;
 }
 
 export async function getMeterReadingsByTenant(tenantId: string): Promise<MeterReading[]> {

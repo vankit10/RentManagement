@@ -12,9 +12,10 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import Icon from 'react-native-vector-icons/MaterialCommunityIcons';
 import { Colors, FontSize, FontWeight, Radius, Spacing } from '../../constants';
 import InfoRow from '../../components/InfoRow';
+import NoOwnerBanner from '../../components/NoOwnerBanner';
 import { useAuth } from '../../context/AuthContext';
 import AuthInput from '../../components/AuthInput';
-import { getLatestMeterReading, getRentRecords, getTenantByUserId } from '../../services/tenantService';
+import { getMyLatestMeterReading, getMyRentRecords, getTenantByUserId } from '../../services/tenantService';
 import { formatCurrency, formatDate } from '../../utils/helpers';
 import { getSupabaseErrorMessage } from '../../utils/supabaseErrors';
 import type { Tenant } from '../../types';
@@ -118,6 +119,8 @@ export default function TenantProfileScreen() {
   const [editName, setEditName] = useState('');
   const [editEmail, setEditEmail] = useState('');
   const [editPhone, setEditPhone] = useState('');
+  // A tenant needs access only until an owner accepts or directly links them.
+  const needsOwnerSetup = !tenant || !tenant.owner_id;
 
   useEffect(() => {
     if (!uid) { return; }
@@ -126,8 +129,8 @@ export default function TenantProfileScreen() {
         setTenant(t);
         if (t) {
           const [rentRecords, latestMeter] = await Promise.all([
-            getRentRecords(t.id),
-            getLatestMeterReading(t.id),
+            getMyRentRecords(),
+            getMyLatestMeterReading(),
           ]);
           setPendingRent(
             rentRecords
@@ -228,7 +231,7 @@ export default function TenantProfileScreen() {
           </SectionCard>
         )}
 
-        {!isLoading && tenant && (
+        {!isLoading && !needsOwnerSetup && !loadError && (
           <View style={styles.outstandingCard}>
             <View style={styles.outstandingIcon}><Icon name="cash-clock" size={25} color={Colors.textInverse} /></View>
             <View style={styles.outstandingMain}>
@@ -260,8 +263,13 @@ export default function TenantProfileScreen() {
           />
         </SectionCard>
 
+        {/* ── No owner assigned ─────────────────────────── */}
+        {!isLoading && needsOwnerSetup && !loadError && (
+          <NoOwnerBanner />
+        )}
+
         {/* ── Rental info ───────────────────────────────── */}
-        {!isLoading && (
+        {!isLoading && (!needsOwnerSetup || loadError) && (
           <SectionCard title="Rental Information">
             {loadError ? (
               <View style={styles.rentalErrorRow}>
@@ -277,8 +285,8 @@ export default function TenantProfileScreen() {
                         setTenant(t);
                         if (t) {
                           const [rentRecords, latestMeter] = await Promise.all([
-                            getRentRecords(t.id),
-                            getLatestMeterReading(t.id),
+                            getMyRentRecords(),
+                            getMyLatestMeterReading(),
                           ]);
                           setPendingRent(
                             rentRecords

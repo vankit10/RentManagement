@@ -8,9 +8,37 @@ import { format } from 'date-fns';
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
-interface Paginated<T> {
-  data: T[];
-  pagination: { page: number; limit: number; total: number; totalPages: number };
+function normalizeStatus(status: unknown): RentStatus {
+  const value = String(status ?? 'PENDING').toUpperCase();
+  if (value === 'PAID') { return 'Paid'; }
+  if (value === 'OVERDUE') { return 'Overdue'; }
+  if (value === 'CARRIED_FORWARD') { return 'Carried Forward'; }
+  return 'Pending';
+}
+
+export function normalizeRentRecord(item: unknown): RentRecord {
+  const record = (item ?? {}) as Record<string, unknown>;
+  const payments = Array.isArray(record.payments) ? record.payments as Array<Record<string, unknown>> : [];
+  const amount = Number(record.amount ?? 0);
+  const amountPaid = payments.reduce((sum, payment) => sum + Number(payment.amount ?? 0), 0);
+  return {
+    id: String(record.id ?? ''),
+    tenant_id: String(record.tenant_id ?? record.tenantId ?? ''),
+    month: String(record.month ?? ''),
+    amount,
+    base_amount: record.base_amount != null || record.baseAmount != null ? Number(record.base_amount ?? record.baseAmount) : amount,
+    carried_forward_amount: Number(record.carried_forward_amount ?? record.carriedForwardAmount ?? 0),
+    amount_paid: amountPaid,
+    balance: Math.max(0, amount - amountPaid),
+    due_date: String(record.due_date ?? record.dueDate ?? ''),
+    paid_date: record.paid_date != null || record.paidDate != null ? String(record.paid_date ?? record.paidDate) : null,
+    status: normalizeStatus(record.status),
+    created_at: String(record.created_at ?? record.createdAt ?? ''),
+  };
+}
+
+export function normalizeRentList(records: unknown[]): RentRecord[] {
+  return records.map(normalizeRentRecord);
 }
 
 export function toMonthKey(date: Date = new Date()): string {
@@ -25,24 +53,24 @@ export function buildDueDate(month: string, dueDay: number): string {
 // ─── Read ─────────────────────────────────────────────────────────────────────
 
 export async function getAllRentRecords(): Promise<RentRecord[]> {
-  const res = await api.get<Paginated<RentRecord>>('/rent?limit=100');
-  return res.data ?? [];
+  const records = await api.get<unknown[]>('/rent?limit=100');
+  return normalizeRentList(records);
 }
 
 export async function getRentRecordsForTenant(tenantId: string): Promise<RentRecord[]> {
-  const res = await api.get<Paginated<RentRecord>>(
+  const records = await api.get<unknown[]>(
     `/rent?tenantId=${tenantId}&limit=100`,
   );
-  return res.data ?? [];
+  return normalizeRentList(records);
 }
 
 export async function getRentRecordsByStatus(status: RentStatus): Promise<RentRecord[]> {
   // Map old status format to new API format
   const apiStatus = status === 'Paid' ? 'PAID' : status === 'Pending' ? 'PENDING' : 'OVERDUE';
-  const res = await api.get<Paginated<RentRecord>>(
+  const records = await api.get<unknown[]>(
     `/rent?status=${apiStatus}&limit=100`,
   );
-  return res.data ?? [];
+  return normalizeRentList(records);
 }
 
 // ─── Create ───────────────────────────────────────────────────────────────────
@@ -56,27 +84,35 @@ export interface CreateRentRecordParams {
 
 export async function createRentRecord(params: CreateRentRecordParams): Promise<string> {
   // Check existing first
-  const existing = await api.get<Paginated<RentRecord>>(
+  const existing = await api.get<unknown[]>(
     `/rent?tenantId=${params.tenantId}&month=${params.month}&limit=1`,
   ).catch(() => null);
 
-  if (existing?.data?.[0]) {
-    return existing.data[0].id;
+  const existingRecord = existing ? normalizeRentList(existing)[0] : undefined;
+  if (existingRecord) {
+    return existingRecord.id;
   }
 
-  const record = await api.post<RentRecord>('/rent/generate', {
+  await api.post('/rent/generate', {
     month: params.month,
   });
-  return record.id ?? '';
+  const generated = await api.get<unknown[]>(
+    `/rent?tenantId=${params.tenantId}&month=${params.month}&limit=1`,
+  );
+  const record = normalizeRentList(generated)[0];
+  if (!record) { throw new Error('Rent record was not created.'); }
+  return record.id;
 }
 
 // ─── Record payment ───────────────────────────────────────────────────────────
 
 export async function recordPayment(
   rentRecordId: string,
+  tenantId: string,
+  amount: number,
   paidDate: string = new Date().toISOString().slice(0, 10),
 ): Promise<void> {
-  await api.patch(`/rent/${rentRecordId}/status`, { status: 'PAID' });
+  await api.post('/payments', { tenantId, rentRecordId, amount, paymentDate: paidDate });
 }
 
 // ─── Update status ────────────────────────────────────────────────────────────

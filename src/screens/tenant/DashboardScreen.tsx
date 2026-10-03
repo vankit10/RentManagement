@@ -13,11 +13,12 @@ import Icon from 'react-native-vector-icons/MaterialCommunityIcons';
 
 import { Colors, FontSize, FontWeight, Radius, Spacing } from '../../constants';
 import StatusBadge from '../../components/StatusBadge';
+import NoOwnerBanner from '../../components/NoOwnerBanner';
 import { useAuth } from '../../context/AuthContext';
 import {
   getTenantByUserId,
-  getLatestRentRecord,
-  getLatestMeterReading,
+  getMyLatestRentRecord,
+  getMyLatestMeterReading,
   subscribeToNotifications,
 } from '../../services/tenantService';
 import { formatCurrency, formatDate } from '../../utils/helpers';
@@ -104,8 +105,8 @@ export default function TenantDashboardScreen() {
       setTenant(t);
       if (t) {
         const [rent, meter] = await Promise.all([
-          getLatestRentRecord(t.id),
-          getLatestMeterReading(t.id),
+          getMyLatestRentRecord(),
+          getMyLatestMeterReading(),
         ]);
         setLatestRent(rent);
         setLatestMeter(meter);
@@ -143,6 +144,8 @@ export default function TenantDashboardScreen() {
   const hour = new Date().getHours();
   const greeting =
     hour < 12 ? 'Good Morning' : hour < 17 ? 'Good Afternoon' : 'Good Evening';
+  // A tenant needs access only until an owner accepts or directly links them.
+  const needsOwnerSetup = !tenant || !tenant.owner_id;
 
   // ── Render ──────────────────────────────────────────────────────────────────
   return (
@@ -182,6 +185,8 @@ export default function TenantDashboardScreen() {
           <View style={styles.loadingContainer}>
             <Text style={styles.loadingText}>Loading your dashboard…</Text>
           </View>
+        ) : needsOwnerSetup && !loadError ? (
+          <NoOwnerBanner />
         ) : (
           <>
             {/* ── Error banner ──────────────────────────────────────────────── */}
