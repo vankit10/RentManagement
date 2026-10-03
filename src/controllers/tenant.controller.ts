@@ -13,7 +13,7 @@ export async function listTenants(
 ): Promise<void> {
   try {
     const { tenants, pagination } = await tenantService.listTenants(
-      req.query as Record<string, unknown>,
+      req.query as Record<string, unknown>, (req as AuthenticatedRequest).user.id,
     );
     sendPaginated(res, tenants, pagination);
   } catch (err) {
@@ -24,12 +24,12 @@ export async function listTenants(
 // ─── GET /api/v1/tenants/stats ────────────────────────────────────────────────
 
 export async function getDashboardStats(
-  _req: Request,
+  req: Request,
   res: Response,
   next: NextFunction,
 ): Promise<void> {
   try {
-    const stats = await tenantService.getDashboardStats();
+    const stats = await tenantService.getDashboardStats((req as AuthenticatedRequest).user.id);
     sendSuccess(res, stats);
   } catch (err) {
     next(err);
@@ -59,7 +59,7 @@ export async function getTenant(
   next: NextFunction,
 ): Promise<void> {
   try {
-    const tenant = await tenantService.getTenantById(req.params.id);
+    const tenant = await tenantService.getTenantById(req.params.id, (req as AuthenticatedRequest).user.id);
     sendSuccess(res, tenant);
   } catch (err) {
     next(err);
@@ -74,7 +74,7 @@ export async function createTenant(
   next: NextFunction,
 ): Promise<void> {
   try {
-    const tenant = await tenantService.createTenant(req.body);
+    const tenant = await tenantService.createTenant(req.body, (req as AuthenticatedRequest).user.id);
     sendSuccess(res, tenant, 201);
   } catch (err) {
     next(err);
@@ -89,7 +89,7 @@ export async function updateTenant(
   next: NextFunction,
 ): Promise<void> {
   try {
-    const tenant = await tenantService.updateTenant(req.params.id, req.body);
+    const tenant = await tenantService.updateTenant(req.params.id, req.body, (req as AuthenticatedRequest).user.id);
     sendSuccess(res, tenant);
   } catch (err) {
     next(err);
@@ -105,7 +105,7 @@ export async function updateTenantStatus(
 ): Promise<void> {
   try {
     const { status } = req.body as { status: TenantStatus };
-    const tenant = await tenantService.updateTenantStatus(req.params.id, status);
+    const tenant = await tenantService.updateTenantStatus(req.params.id, status, (req as AuthenticatedRequest).user.id);
     sendSuccess(res, tenant);
   } catch (err) {
     next(err);

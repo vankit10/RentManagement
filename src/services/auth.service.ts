@@ -11,7 +11,68 @@ import {
   UnauthorizedError,
   NotFoundError,
   BadRequestError,
+  ConflictError,
 } from '../lib/errors';
+
+// ─── Register ─────────────────────────────────────────────────────────────────
+
+export async function register(
+  name: string,
+  email: string,
+  phone: string,
+  password: string,
+  role: 'tenant' | 'owner',
+) {
+  const orgId = process.env.DEFAULT_ORG_ID!;
+
+  // Check email uniqueness
+  const existingEmail = await prisma.user.findUnique({
+    where: { email: email.toLowerCase().trim() },
+  });
+  if (existingEmail) {
+    throw new ConflictError('An account with this email already exists');
+  }
+
+  // Check phone uniqueness
+  const existingPhone = await prisma.user.findFirst({
+    where: { phone: phone.trim() },
+  });
+  if (existingPhone) {
+    throw new ConflictError('An account with this phone number already exists');
+  }
+
+  const passwordHash = await bcrypt.hash(password, 12);
+  const dbRole = role === 'owner' ? 'OWNER' : 'TENANT';
+
+  const user = await prisma.user.create({
+    data: {
+      organizationId: orgId,
+      name: name.trim(),
+      email: email.toLowerCase().trim(),
+      phone: phone.trim(),
+      passwordHash,
+      role: dbRole,
+      status: 'ACTIVE',
+    },
+  });
+
+  // If registering as tenant, also create a tenant record
+  if (dbRole === 'TENANT') {
+    await prisma.tenant.create({
+      data: {
+        organizationId: orgId,
+        userId: user.id,
+        name: user.name,
+        phone: user.phone!,
+        email: user.email,
+        status: 'ACTIVE',
+      },
+    });
+  }
+
+  // Auto-login: generate tokens
+  return login(email, password);
+}
 
 // ─── Login ────────────────────────────────────────────────────────────────────
 

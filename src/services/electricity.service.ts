@@ -51,6 +51,21 @@ export async function getMeterReadingById(id: string) {
   return reading;
 }
 
+// ─── Get a tenant's reading for one billing month ───────────────────────────
+
+export async function getMeterReadingForTenantMonth(tenantId: string, month: string) {
+  return prisma.meterReading.findFirst({
+    where: {
+      tenantId,
+      month,
+      tenant: { organizationId: ORG_ID },
+    },
+    include: {
+      tenant: { select: { id: true, name: true, phone: true } },
+    },
+  });
+}
+
 // ─── Get readings for a tenant ────────────────────────────────────────────────
 
 export async function getReadingsForTenant(

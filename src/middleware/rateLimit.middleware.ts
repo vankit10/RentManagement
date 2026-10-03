@@ -9,6 +9,17 @@ export const apiLimiter = rateLimit({
   max: parseInt(process.env.RATE_LIMIT_MAX_REQUESTS ?? '100', 10),
   standardHeaders: true,
   legacyHeaders: false,
+  // Login and the lightweight dashboard summary must stay responsive. The
+  // dashboard loads whenever the owner returns to the app, so it should not
+  // consume or be blocked by the shared API request budget. Meter-reading
+  // lookups also run together while the owner opens the form, so they are
+  // excluded from this shared request budget.
+  skip: (req: Request) =>
+    req.originalUrl.split('?')[0] === '/api/v1/auth/login'
+    || req.originalUrl.split('?')[0] === '/api/v1/tenants/stats'
+    || /^\/api\/v1\/electricity\/tenant\/[^/]+\/month\/\d{4}-\d{2}$/.test(
+      req.originalUrl.split('?')[0],
+    ),
   handler: (_req: Request, res: Response) => {
     sendError(
       res,

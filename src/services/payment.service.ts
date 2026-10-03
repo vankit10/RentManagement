@@ -1,8 +1,9 @@
 import prisma from '../lib/prisma';
 import { NotFoundError, BadRequestError } from '../lib/errors';
 import { parsePagination } from '../lib/response';
-import { Prisma } from '@prisma/client';
+import { Prisma, RentStatus } from '@prisma/client';
 import { CreatePaymentInput } from '../validators/payment.validator';
+import { reconcileTenantBills } from './billing.service';
 
 const ORG_ID = process.env.DEFAULT_ORG_ID!;
 
@@ -94,6 +95,8 @@ export async function recordPayment(data: CreatePaymentInput) {
   });
   if (!tenant) throw new NotFoundError('Tenant');
 
+  await reconcileTenantBills(data.tenantId);
+
   // Validate rent record
   const rentRecord = await prisma.rentRecord.findFirst({
     where: { id: data.rentRecordId, tenantId: data.tenantId },
@@ -106,8 +109,20 @@ export async function recordPayment(data: CreatePaymentInput) {
   if (rentRecord.status === 'CANCELLED') {
     throw new BadRequestError('Cannot record payment for a cancelled rent record');
   }
+  // Historical invoices remain payable. Reconciliation after this payment
+  // reduces every later month's opening balance by the amount received.
 
-  // Atomic: create payment + update rent status + create notification
+  const amountAlreadyPaid = await prisma.payment.aggregate({
+    where: { rentRecordId: data.rentRecordId },
+    _sum: { amount: true },
+  });
+  const remainingBalance = Number(rentRecord.amount) - Number(amountAlreadyPaid._sum.amount ?? 0);
+  if (data.amount > remainingBalance) {
+    throw new BadRequestError(`Payment exceeds the remaining balance of ₹${remainingBalance.toFixed(2)}`);
+  }
+
+  // Atomic: record the payment and only mark the invoice paid when its full
+  // balance has actually been received.
   const payment = await prisma.$transaction(async (tx) => {
     const newPayment = await tx.payment.create({
       data: {
@@ -121,10 +136,15 @@ export async function recordPayment(data: CreatePaymentInput) {
       },
     });
 
-    // Mark rent as paid
+    const newRemainingBalance = remainingBalance - data.amount;
+    const status: RentStatus = newRemainingBalance <= 0.005 ? 'PAID' : (rentRecord.status === 'OVERDUE' ? 'OVERDUE' : 'PENDING');
+
     await tx.rentRecord.update({
       where: { id: data.rentRecordId },
-      data: { status: 'PAID', paidDate: new Date(data.paymentDate) },
+      data: {
+        status,
+        ...(status === 'PAID' && { paidDate: new Date(data.paymentDate) }),
+      },
     });
 
     // Create in-app notification
@@ -133,7 +153,9 @@ export async function recordPayment(data: CreatePaymentInput) {
         organizationId: ORG_ID,
         tenantId: data.tenantId,
         title: 'Payment Confirmed',
-        message: `Your payment of ₹${data.amount} for ${rentRecord.month} has been recorded successfully.`,
+        message: status === 'PAID'
+          ? `Your rent for ${rentRecord.month} has been paid in full.`
+          : `Your payment of ₹${data.amount} for ${rentRecord.month} has been recorded. Remaining balance: ₹${newRemainingBalance.toFixed(2)}.`,
         type: 'PAYMENT_CONFIRMATION',
       },
     });
@@ -141,5 +163,6 @@ export async function recordPayment(data: CreatePaymentInput) {
     return newPayment;
   });
 
+  await reconcileTenantBills(data.tenantId);
   return getPaymentById(payment.id);
 }

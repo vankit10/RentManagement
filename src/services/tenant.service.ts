@@ -9,7 +9,7 @@ const ORG_ID = process.env.DEFAULT_ORG_ID!;
 
 // ─── List tenants ─────────────────────────────────────────────────────────────
 
-export async function listTenants(query: Record<string, unknown>) {
+export async function listTenants(query: Record<string, unknown>, ownerId: string) {
   const { page, limit, skip } = parsePagination(query);
   const search = query.search as string | undefined;
   const status = query.status as TenantStatus | undefined;
@@ -17,6 +17,7 @@ export async function listTenants(query: Record<string, unknown>) {
 
   const where: Prisma.TenantWhereInput = {
     organizationId: ORG_ID,
+    ownerId,
     ...(status && { status }),
     ...(unitId && { unitId }),
     ...(search && {
@@ -54,9 +55,9 @@ export async function listTenants(query: Record<string, unknown>) {
 
 // ─── Get single tenant ────────────────────────────────────────────────────────
 
-export async function getTenantById(id: string) {
+export async function getTenantById(id: string, ownerId?: string) {
   const tenant = await prisma.tenant.findFirst({
-    where: { id, organizationId: ORG_ID },
+    where: { id, organizationId: ORG_ID, ...(ownerId && { ownerId }) },
     include: {
       unit: {
         include: {
@@ -89,13 +90,60 @@ export async function getTenantByUserId(userId: string) {
 
 // ─── Create tenant ────────────────────────────────────────────────────────────
 
-export async function createTenant(data: CreateTenantInput) {
+export async function createTenant(data: CreateTenantInput, ownerId: string) {
+  const email = data.email?.trim().toLowerCase() || null;
+  const phone = data.phone?.trim() || null;
+
+  // An email-only request can link an existing self-registered tenant account.
+  if (email) {
+    const existingUser = await prisma.user.findUnique({
+      where: { email },
+      include: { tenant: true },
+    });
+
+    if (existingUser) {
+      if (existingUser.role !== 'TENANT') {
+        throw new BadRequestError('This email belongs to an owner account, not a tenant');
+      }
+      if (existingUser.tenant?.ownerId && existingUser.tenant.ownerId !== ownerId) {
+        throw new ConflictError('This tenant is already assigned to another owner');
+      }
+
+      const tenant = existingUser.tenant
+        ? await prisma.tenant.update({
+            where: { id: existingUser.tenant.id },
+            data: {
+              ownerId,
+              ...(data.name?.trim() && { name: data.name.trim() }),
+              ...(data.unitId !== undefined && { unitId: data.unitId }),
+              ...(data.joiningDate && { joiningDate: new Date(data.joiningDate) }),
+              ...(data.rentAmount !== undefined && { rentAmount: data.rentAmount }),
+              ...(data.dueDay !== undefined && { dueDay: data.dueDay }),
+            },
+          })
+        : await prisma.tenant.create({
+            data: {
+              organizationId: ORG_ID,
+              ownerId,
+              userId: existingUser.id,
+              name: existingUser.name,
+              phone: existingUser.phone,
+              email,
+            },
+          });
+
+      return {
+        tenant: await getTenantById(tenant.id, ownerId),
+        defaultPasswordAssigned: false,
+        usedExistingAccount: true,
+      };
+    }
+  }
+
   // Check phone uniqueness
-  const existing = await prisma.tenant.findUnique({
-    where: { phone: data.phone },
-  });
-  if (existing) {
-    throw new ConflictError('A tenant with this phone number already exists');
+  if (phone) {
+    const existing = await prisma.tenant.findUnique({ where: { phone } });
+    if (existing) throw new ConflictError('A tenant with this phone number already exists');
   }
 
   // If unitId provided, check unit is available
@@ -108,16 +156,21 @@ export async function createTenant(data: CreateTenantInput) {
   }
 
   // Create user account for tenant (password = phone number by default)
-  const passwordHash = await bcrypt.hash(data.phone, 12);
+  // Email-created accounts use the agreed default password, even when the
+  // owner also supplies a phone number. Phone-only registration keeps the
+  // existing phone-number default for backward compatibility.
+  const defaultPasswordAssigned = !!email;
+  const passwordHash = await bcrypt.hash(defaultPasswordAssigned ? 'Ad123456' : phone!, 12);
+  const tenantName = data.name?.trim() || email?.split('@')[0] || 'Tenant';
 
   const tenant = await prisma.$transaction(async (tx) => {
     // Create user
     const user = await tx.user.create({
       data: {
         organizationId: ORG_ID,
-        name: data.name,
-        phone: data.phone,
-        email: data.email || null,
+        name: tenantName,
+        phone,
+        email,
         passwordHash,
         role: 'TENANT',
         status: 'ACTIVE',
@@ -128,10 +181,11 @@ export async function createTenant(data: CreateTenantInput) {
     const newTenant = await tx.tenant.create({
       data: {
         organizationId: ORG_ID,
+        ownerId,
         userId: user.id,
-        name: data.name,
-        phone: data.phone,
-        email: data.email || null,
+        name: tenantName,
+        phone,
+        email,
         unitId: data.unitId ?? null,
         joiningDate: data.joiningDate ? new Date(data.joiningDate) : null,
         rentAmount: data.rentAmount ?? null,
@@ -151,14 +205,18 @@ export async function createTenant(data: CreateTenantInput) {
     return newTenant;
   });
 
-  return getTenantById(tenant.id);
+  return {
+    tenant: await getTenantById(tenant.id, ownerId),
+    defaultPasswordAssigned,
+    usedExistingAccount: false,
+  };
 }
 
 // ─── Update tenant ────────────────────────────────────────────────────────────
 
-export async function updateTenant(id: string, data: UpdateTenantInput) {
+export async function updateTenant(id: string, data: UpdateTenantInput, ownerId: string) {
   const tenant = await prisma.tenant.findFirst({
-    where: { id, organizationId: ORG_ID },
+    where: { id, organizationId: ORG_ID, ownerId },
   });
   if (!tenant) throw new NotFoundError('Tenant');
 
@@ -210,14 +268,14 @@ export async function updateTenant(id: string, data: UpdateTenantInput) {
     });
   }
 
-  return getTenantById(id);
+  return getTenantById(id, ownerId);
 }
 
 // ─── Update tenant status ─────────────────────────────────────────────────────
 
-export async function updateTenantStatus(id: string, status: TenantStatus) {
+export async function updateTenantStatus(id: string, status: TenantStatus, ownerId: string) {
   const tenant = await prisma.tenant.findFirst({
-    where: { id, organizationId: ORG_ID },
+    where: { id, organizationId: ORG_ID, ownerId },
   });
   if (!tenant) throw new NotFoundError('Tenant');
 
@@ -241,12 +299,12 @@ export async function updateTenantStatus(id: string, status: TenantStatus) {
     }
   });
 
-  return getTenantById(id);
+  return getTenantById(id, ownerId);
 }
 
 // ─── Dashboard stats ──────────────────────────────────────────────────────────
 
-export async function getDashboardStats() {
+export async function getDashboardStats(ownerId: string) {
   const [
     totalTenants,
     activeTenants,
@@ -254,13 +312,13 @@ export async function getDashboardStats() {
     overdueRent,
     collectedThisMonth,
   ] = await Promise.all([
-    prisma.tenant.count({ where: { organizationId: ORG_ID } }),
-    prisma.tenant.count({ where: { organizationId: ORG_ID, status: 'ACTIVE' } }),
-    prisma.rentRecord.count({ where: { status: 'PENDING', tenant: { organizationId: ORG_ID } } }),
-    prisma.rentRecord.count({ where: { status: 'OVERDUE', tenant: { organizationId: ORG_ID } } }),
+    prisma.tenant.count({ where: { organizationId: ORG_ID, ownerId } }),
+    prisma.tenant.count({ where: { organizationId: ORG_ID, ownerId, status: 'ACTIVE' } }),
+    prisma.rentRecord.count({ where: { status: 'PENDING', tenant: { organizationId: ORG_ID, ownerId } } }),
+    prisma.rentRecord.count({ where: { status: 'OVERDUE', tenant: { organizationId: ORG_ID, ownerId } } }),
     prisma.payment.aggregate({
       where: {
-        tenant: { organizationId: ORG_ID },
+        tenant: { organizationId: ORG_ID, ownerId },
         paymentDate: {
           gte: new Date(new Date().getFullYear(), new Date().getMonth(), 1),
         },

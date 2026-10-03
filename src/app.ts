@@ -14,6 +14,7 @@ import notificationRoutes from './routes/v1/notification.routes';
 import propertyRoutes     from './routes/v1/property.routes';
 import unitRoutes         from './routes/v1/unit.routes';
 import deviceRoutes       from './routes/v1/device.routes';
+import accessRequestRoutes from './routes/v1/accessRequest.routes';
 
 const app = express();
 
@@ -55,6 +56,7 @@ app.use(`${V1}/notifications`, notificationRoutes);
 app.use(`${V1}/properties`,    propertyRoutes);
 app.use(`${V1}/units`,         unitRoutes);
 app.use(`${V1}/devices`,       deviceRoutes);
+app.use(`${V1}/access-requests`, accessRequestRoutes);
 
 // ─── 404 + error handlers ─────────────────────────────────────────────────────
 app.use(notFoundHandler);

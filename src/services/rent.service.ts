@@ -3,6 +3,7 @@ import { NotFoundError, ConflictError } from '../lib/errors';
 import { parsePagination } from '../lib/response';
 import { RentStatus, Prisma } from '@prisma/client';
 import { GenerateRentInput } from '../validators/rent.validator';
+import { reconcileTenantBills } from './billing.service';
 
 const ORG_ID = process.env.DEFAULT_ORG_ID!;
 
@@ -25,6 +26,7 @@ export async function listRentRecords(query: Record<string, unknown>) {
   const tenantId = query.tenantId as string | undefined;
   const status = query.status as RentStatus | undefined;
   const month = query.month as string | undefined;
+  if (tenantId) await reconcileTenantBills(tenantId);
 
   const where: Prisma.RentRecordWhereInput = {
     tenant: { organizationId: ORG_ID },
@@ -133,22 +135,51 @@ export async function generateMonthlyRent(input: GenerateRentInput) {
         });
 
         if (existing) {
+          await reconcileTenantBills(tenant.id);
           skipped++;
           return;
         }
 
         const dueDate = buildDueDate(month, tenant.dueDay!);
 
-        await prisma.rentRecord.create({
-          data: {
-            tenantId: tenant.id,
-            month,
-            amount: tenant.rentAmount!,
-            dueDate,
-            status: 'PENDING',
-          },
+        await prisma.$transaction(async tx => {
+          // Move every still-open older invoice into this one. The balance is
+          // calculated from actual payments, so multiple partial payments are
+          // handled correctly.
+          const olderRecords = await tx.rentRecord.findMany({
+            where: {
+              tenantId: tenant.id,
+              month: { lt: month },
+              status: { in: ['PENDING', 'OVERDUE'] },
+            },
+            include: { payments: { select: { amount: true } } },
+          });
+          const carriedForward = olderRecords.reduce((total, record) => {
+            const paid = record.payments.reduce((sum, payment) => sum + Number(payment.amount), 0);
+            return total + Math.max(0, Number(record.amount) - paid);
+          }, 0);
+
+          if (olderRecords.length > 0) {
+            await tx.rentRecord.updateMany({
+              where: { id: { in: olderRecords.map(record => record.id) } },
+              data: { status: 'CARRIED_FORWARD' },
+            });
+          }
+
+          await tx.rentRecord.create({
+            data: {
+              tenantId: tenant.id,
+              month,
+              baseAmount: tenant.rentAmount!,
+              carriedForwardAmount: carriedForward,
+              amount: Number(tenant.rentAmount!) + carriedForward,
+              dueDate,
+              status: 'PENDING',
+            },
+          });
         });
 
+        await reconcileTenantBills(tenant.id);
         created++;
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
@@ -191,7 +222,7 @@ export async function updateRentStatus(id: string, status: RentStatus) {
 export async function detectAndMarkOverdue(): Promise<number> {
   const result = await prisma.rentRecord.updateMany({
     where: {
-      status: 'PENDING',
+      status: { in: ['PENDING', 'OVERDUE'] },
       dueDate: { lt: new Date() },
       tenant: { organizationId: ORG_ID },
     },

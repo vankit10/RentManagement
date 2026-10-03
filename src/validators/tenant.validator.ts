@@ -1,15 +1,18 @@
 import { z } from 'zod';
 
 export const CreateTenantSchema = z.object({
-  name: z.string().min(2, 'Name must be at least 2 characters').trim(),
+  name: z.string().min(2, 'Name must be at least 2 characters').trim().optional().or(z.literal('')),
   phone: z
     .string()
-    .regex(/^[6-9]\d{9}$/, 'Enter a valid 10-digit Indian mobile number'),
+    .regex(/^[6-9]\d{9}$/, 'Enter a valid 10-digit Indian mobile number').optional().or(z.literal('')),
   email: z.string().email('Invalid email').optional().or(z.literal('')),
   unitId: z.string().cuid('Invalid unit ID').optional(),
   joiningDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Date must be YYYY-MM-DD').optional(),
   rentAmount: z.number().positive('Rent amount must be positive').optional(),
   dueDay: z.number().int().min(1).max(28, 'Due day must be between 1 and 28').optional(),
+}).refine(data => !!data.email || !!data.phone, {
+  message: 'Enter an email address or mobile number',
+  path: ['email'],
 });
 
 export const UpdateTenantSchema = z.object({

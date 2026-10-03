@@ -4,6 +4,28 @@ import { sendSuccess } from '../lib/response';
 import { AuthenticatedRequest } from '../types';
 import { BadRequestError } from '../lib/errors';
 
+// ─── POST /api/v1/auth/register ───────────────────────────────────────────────
+
+export async function register(
+  req: Request,
+  res: Response,
+  next: NextFunction,
+): Promise<void> {
+  try {
+    const { name, email, phone, password, role } = req.body as {
+      name: string;
+      email: string;
+      phone: string;
+      password: string;
+      role: 'tenant' | 'owner';
+    };
+    const result = await authService.register(name, email, phone, password, role ?? 'tenant');
+    sendSuccess(res, result, 201);
+  } catch (err) {
+    next(err);
+  }
+}
+
 // ─── POST /api/v1/auth/login ──────────────────────────────────────────────────
 
 export async function login(

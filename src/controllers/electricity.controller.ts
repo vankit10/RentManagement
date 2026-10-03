@@ -17,6 +17,18 @@ export async function getReading(req: Request, res: Response, next: NextFunction
   } catch (err) { next(err); }
 }
 
+export async function getReadingForTenantMonth(req: Request, res: Response, next: NextFunction): Promise<void> {
+  try {
+    const reading = await electricityService.getMeterReadingForTenantMonth(
+      req.params.tenantId,
+      req.params.month,
+    );
+    // Keep a missing month a successful lookup: the app needs this to decide
+    // whether to show details or prepare a new reading form.
+    sendSuccess(res, { reading });
+  } catch (err) { next(err); }
+}
+
 export async function getMyReadings(req: AuthenticatedRequest, res: Response, next: NextFunction): Promise<void> {
   try {
     const tenant = await (await import('../services/tenant.service')).getTenantByUserId(req.user.id);

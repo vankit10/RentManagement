@@ -5,6 +5,7 @@ import { validate } from '../../middleware/validate.middleware';
 import { authLimiter } from '../../middleware/rateLimit.middleware';
 import {
   LoginSchema,
+  RegisterSchema,
   RefreshTokenSchema,
   ChangePasswordSchema,
 } from '../../validators/auth.validator';
@@ -14,10 +15,17 @@ const router = Router();
 
 // ─── Public routes ────────────────────────────────────────────────────────────
 
+// POST /api/v1/auth/register
+router.post(
+  '/register',
+  authLimiter,
+  validate(RegisterSchema),
+  authController.register,
+);
+
 // POST /api/v1/auth/login
 router.post(
   '/login',
-  authLimiter,
   validate(LoginSchema),
   authController.login,
 );

@@ -22,5 +22,10 @@ export const ElectricityQuerySchema = z.object({
   month: z.string().regex(/^\d{4}-\d{2}$/).optional(),
 });
 
+export const TenantMonthParamsSchema = z.object({
+  tenantId: z.string().cuid('Invalid tenant ID'),
+  month: z.string().regex(/^\d{4}-\d{2}$/, 'Month must be YYYY-MM'),
+});
+
 export type CreateMeterReadingInput = z.infer<typeof CreateMeterReadingSchema>;
 export type UpdateElectricityRateInput = z.infer<typeof UpdateElectricityRateSchema>;
